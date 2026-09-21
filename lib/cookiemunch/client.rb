@@ -86,6 +86,13 @@ module CookieMunch
       get("/me")
     end
 
+    # GET /v1/languages — the languages the banner already has copy for. Diff it
+    # against your visitors' locales to find the ones you still have to write.
+    # @return [Array<Hash>] each { "code", "name", "endonym", "rtl", "source" }
+    def languages
+      get("/languages")
+    end
+
     # GET /v1/usage — current resource usage for the org.
     # @return [Hash] { "domains", "seats", "monthlyEvents" }
     def usage

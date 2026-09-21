@@ -87,6 +87,13 @@ module CookieMunch
       @client.request("GET", "/sites/#{enc(cbid)}/blocked")
     end
 
+    # Read a cookie declaration exported from another CMP and translate its categories
+    # into ours. Nothing is applied — the result comes back for review.
+    # @return [Hash] { "source", "cookies", "unmapped" }.
+    def import_declaration(cbid, data)
+      @client.request("POST", "/sites/#{enc(cbid)}/import", body: { "data" => data })
+    end
+
     # The site's privacy and cookie policy, as Markdown.
     def policy(cbid, contact_email: nil, effective_date: nil, jurisdictions: nil)
       query = qs("contactEmail" => contact_email, "effectiveDate" => effective_date,
