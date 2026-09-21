@@ -91,12 +91,14 @@ Optional fields are forwarded when supplied: `ver:` (default 1), `stamp:`,
 
 ## Method surface
 
-Top-level: `me`, `usage`, `log_consent(...)`.
+Top-level: `me`, `usage`, `audit(limit: nil)`, `log_consent(...)`.
 
 ### `sites`
 `list`, `create(domain:, cbid: nil)`, `get(cbid)`, `delete(cbid)`,
 `get_config(cbid)`, `put_config(cbid, config)`, `cookies(cbid)`, `scan(cbid)`,
-`scan_status(cbid)`, `ab(cbid)`, `snippet(cbid, blocking_mode: nil, culture: nil)`,
+`scan_status(cbid)`, `ab(cbid)`, `banner(cbid)`, `snippet(cbid, blocking_mode: nil, culture: nil)`,
+`policy(cbid, contact_email:, effective_date:, jurisdictions:)` (Markdown `String`),
+`set_ad_personalization(cbid, enabled:, default:, label:)`, `analyze_session(cbid, har:, requests:, consent:, gpc:)`,
 `verify(cbid, method)`, `brand(cbid)`, `get_flow(cbid)`,
 `edit_flow(cbid, operations)`, `set_flow(cbid, config)`.
 
@@ -107,32 +109,77 @@ Top-level: `me`, `usage`, `log_consent(...)`.
 
 ### `dsar`
 `list`, `create(type:, subject_email:, regulation:, note: nil)`,
-`advance(id, to_status)`.
+`advance(id, to_status)`, `response(id)` (plain-text notice),
+`erase(id, cbid, stamp)`, `export(id, cbid, stamp)`.
 
 ### `vendors`
 `list`, `create(vendor_hash)`.
 
 ### `ropa`
-`list`, `create(entry_hash)`.
+`list`, `create(entry_hash)`, `export_csv` (CSV `String`).
 
 ### `brand_kits`
 `list`, `create(kit_hash)`, `delete(id)`.
 
 ### `preferences`
-`list`, `save(subject_id, purposes)`.
+`list`, `save(subject_id, purposes)`, `get(subject_id)`.
 
 ### `members`
 `list`, `invite(email, role)`, `set_role(user_id, role)`, `remove(user_id)`.
 
 ### `keys`
-`list`, `issue(name: nil)` — the issued `key` is returned **once**.
+`list`, `issue(name:, scopes:, cbids:, expires_in_days:)` — the issued `key` is returned **once**.
+Pass `scopes` and/or `cbids` for a least-privilege key; a key locked with `cbids` works only
+on those sites and on no org-wide endpoint. `roll(prefix)` rotates the secret (also
+returned once); `update(prefix, name:, scopes:, cbids:)` changes only the fields sent.
 
 ### `webhooks`
-`list`, `create(url:, events:, cbid: nil)`, `delete(id)`.
+`list`, `create(url:, events:, cbid: nil)`, `update(id, url:, events:, cbid:, active:)`,
+`delete(id)`, `roll_secret(id)`, `test(id)`, `dead_letters`, `replay_dead_letter(id)`.
 
 ### `banners`
 `list`, `create(name:, json:)`, `get(id)`, `update(id, name:, json:)`,
 `delete(id)`, `assignments(id)`, `set_assignments(id, cbids)`, `publish(id)`.
+
+### `org`
+Requires an unscoped key that is not property-locked. `get`, `update(name:, logo_url:)`
+— pass `logo_url: nil` to remove the logo (sent as JSON `null`); omit it to leave the
+logo unchanged. Deleting the org is not available through the API.
+
+### `assets`
+`upload(data:, content_type:)` — uploads a banner image (base64, or a `data:` URL;
+`image/png` | `image/jpeg` | `image/webp` | `image/gif` | `image/svg+xml`) and returns
+its public URL, `{ "url" }`. Requires sites:write.
+
+### The privacy platform
+
+Identity, vault and profile reads are `POST`s on purpose: a person's identifiers travel in
+the request body, never in a URL where logs and proxies would keep them. `identifiers` is
+an Array of `{ "space" => …, "value" => … }`.
+
+- `identity` — `resolve(identifiers)`, `link(identifiers)`, `cluster(subject_id)`
+- `vault` — `record(identifiers, decisions)`, `current(identifiers)`, `permits(identifiers)`
+- `profile` — `get(identifiers)`, `set_attributes(identifiers, attributes)`, `activate(identifiers, purpose)`
+- `subscriptions` — `topics`, `set_topics(topics)`, `get(subject_id)`, `set(subject_id, topic, channel, opted_in)`, `unsubscribe_all(subject_id)`, `resubscribe(subject_id)`, `activation(subject_id, topics)`
+- `assessments` — `templates`, `list`, `start(template, subject)`, `get(id)`, `answer(id, question_id, value)`, `auto_populate_from_map(id)`, `auto_populate(id, evidence, source)`, `submit(id)`, `approve(id, by)`, `reject(id, by, reason)`
+- `discovery` — `ingest_map(map)`, `get_map`, `ropa_drafts`, `evidence`, `drift`, `plan_enforcement(dialect, rules, permits_table:, policy_prefix:)`
+- `ai` — `get_policy`, `set_policy(policy)`, `inspect_prompt(input)`, `inventory`, `lineage`, `register_system(id:, name:, provider:, purpose:)`, `systems`, `audit(limit:)`. (`inspect_prompt`, not `inspect`, so as not to shadow `Object#inspect`.)
+- `fulfillment` — `sla`, `plan(request_id, systems, include_historical:)`, `status(request_id)`, and for the in-environment agent `pending_tasks(limit:)`, `report_task(task_id, ok, error:)`
+- `regulatory` — `feed(jurisdictions:)`, `upcoming(days:)`
+
+### `reseller`
+
+Needs a key with the `reseller:*` scopes. `list`, `create(name:, owner_email:, controller:,
+white_label:, delegated_access:, mint_key:, key_scopes:)`, `get(id)`,
+`update(id, status:, delegated_access:, dsar_routing:, controller:)` — pass
+`dsar_routing: nil` to clear an override — `deprovision(id, purge: false)`,
+`list_keys(id)`, `mint_key(id, name:, scopes:, cbids:)`, `revoke_key(id, prefix)`.
+
+`deprovision` suspends, which is reversible. `purge: true` deletes the org and its data,
+which is not.
+
+Every operation of the `/v1` API is reachable, and `test/parity_test.rb` keeps it that way
+against `sdks/operations.json`, generated from the server's OpenAPI document.
 
 ## Examples
 

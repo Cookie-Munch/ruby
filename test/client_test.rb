@@ -226,6 +226,177 @@ class ClientTest < Minitest::Test
   end
 end
 
+# Pins method+path+body for the 13 operations added in commit 1c08ee6.
+class NewOperationsTest < Minitest::Test
+  def test_org_get
+    t = FakeTransport.new(body: JSON.generate("id" => "org_1", "name" => "Acme", "plan" => "pro", "logoUrl" => nil))
+    cm = CookieMunch::Client.new(api_key: "fck_secret", transport: t)
+
+    org = cm.org.get
+
+    assert_equal "GET", t.last.method
+    assert_equal "https://api.cookiemunch.net/v1/org", t.last.url
+    assert_equal "org_1", org["id"]
+  end
+
+  def test_org_update_logo_url_nil_sends_json_null
+    t = FakeTransport.new(body: JSON.generate({}))
+    cm = CookieMunch::Client.new(api_key: "fck_secret", transport: t)
+
+    cm.org.update(logo_url: nil)
+
+    assert_equal "PATCH", t.last.method
+    body = JSON.parse(t.last.body)
+    assert body.key?("logoUrl")
+    assert_nil body["logoUrl"]
+  end
+
+  def test_org_update_omitted_logo_url_sends_no_key
+    t = FakeTransport.new(body: JSON.generate({}))
+    cm = CookieMunch::Client.new(api_key: "fck_secret", transport: t)
+
+    cm.org.update(name: "New Name")
+
+    body = JSON.parse(t.last.body)
+    assert_equal({ "name" => "New Name" }, body)
+    refute body.key?("logoUrl")
+  end
+
+  def test_audit_query_param
+    t = FakeTransport.new(body: JSON.generate("entries" => []))
+    cm = CookieMunch::Client.new(api_key: "fck_secret", transport: t)
+
+    cm.audit(limit: 50)
+
+    assert_equal "GET", t.last.method
+    assert_equal "https://api.cookiemunch.net/v1/audit?limit=50", t.last.url
+  end
+
+  def test_audit_omits_limit_when_absent
+    t = FakeTransport.new(body: JSON.generate("entries" => []))
+    cm = CookieMunch::Client.new(api_key: "fck_secret", transport: t)
+
+    cm.audit
+
+    assert_equal "https://api.cookiemunch.net/v1/audit", t.last.url
+  end
+
+  def test_assets_upload
+    t = FakeTransport.new(body: JSON.generate("url" => "https://cdn.example.com/x.png"))
+    cm = CookieMunch::Client.new(api_key: "fck_secret", transport: t)
+
+    result = cm.assets.upload(data: "Zm9v", content_type: "image/png")
+
+    assert_equal "POST", t.last.method
+    assert_equal "https://api.cookiemunch.net/v1/assets", t.last.url
+    assert_equal({ "data" => "Zm9v", "contentType" => "image/png" }, JSON.parse(t.last.body))
+    assert_equal "https://cdn.example.com/x.png", result["url"]
+  end
+
+  def test_keys_roll
+    t = FakeTransport.new(body: JSON.generate("key" => "fck_new", "prefix" => "fck_ab"))
+    cm = CookieMunch::Client.new(api_key: "fck_secret", transport: t)
+
+    cm.keys.roll("fck_ab")
+
+    assert_equal "POST", t.last.method
+    assert_equal "https://api.cookiemunch.net/v1/keys/fck_ab/roll", t.last.url
+  end
+
+  def test_keys_update_sends_only_provided_fields
+    t = FakeTransport.new(body: JSON.generate("ok" => true))
+    cm = CookieMunch::Client.new(api_key: "fck_secret", transport: t)
+
+    cm.keys.update("fck_ab", name: "renamed")
+
+    assert_equal "PATCH", t.last.method
+    assert_equal "https://api.cookiemunch.net/v1/keys/fck_ab", t.last.url
+    assert_equal({ "name" => "renamed" }, JSON.parse(t.last.body))
+  end
+
+  def test_keys_update_scopes_and_cbids
+    t = FakeTransport.new(body: JSON.generate("ok" => true))
+    cm = CookieMunch::Client.new(api_key: "fck_secret", transport: t)
+
+    cm.keys.update("fck_ab", scopes: ["sites:read"], cbids: ["c1"])
+
+    assert_equal({ "scopes" => ["sites:read"], "cbids" => ["c1"] }, JSON.parse(t.last.body))
+  end
+
+  def test_webhooks_roll_secret
+    t = FakeTransport.new(body: JSON.generate("secret" => "whsec_new"))
+    cm = CookieMunch::Client.new(api_key: "fck_secret", transport: t)
+
+    cm.webhooks.roll_secret("wh_1")
+
+    assert_equal "POST", t.last.method
+    assert_equal "https://api.cookiemunch.net/v1/webhooks/wh_1/roll", t.last.url
+  end
+
+  def test_webhooks_test
+    t = FakeTransport.new(body: JSON.generate("ok" => true, "status" => 200))
+    cm = CookieMunch::Client.new(api_key: "fck_secret", transport: t)
+
+    result = cm.webhooks.test("wh_1")
+
+    assert_equal "POST", t.last.method
+    assert_equal "https://api.cookiemunch.net/v1/webhooks/wh_1/test", t.last.url
+    assert result["ok"]
+  end
+
+  def test_webhooks_dead_letters
+    t = FakeTransport.new(body: JSON.generate("deadLetters" => []))
+    cm = CookieMunch::Client.new(api_key: "fck_secret", transport: t)
+
+    cm.webhooks.dead_letters
+
+    assert_equal "GET", t.last.method
+    assert_equal "https://api.cookiemunch.net/v1/webhooks/dead-letters", t.last.url
+  end
+
+  def test_webhooks_replay_dead_letter
+    t = FakeTransport.new(body: JSON.generate("ok" => true))
+    cm = CookieMunch::Client.new(api_key: "fck_secret", transport: t)
+
+    cm.webhooks.replay_dead_letter("dl_1")
+
+    assert_equal "POST", t.last.method
+    assert_equal "https://api.cookiemunch.net/v1/webhooks/dead-letters/dl_1/replay", t.last.url
+  end
+
+  def test_preferences_get
+    t = FakeTransport.new(body: JSON.generate("subjectId" => "sub_1", "purposes" => {}))
+    cm = CookieMunch::Client.new(api_key: "fck_secret", transport: t)
+
+    cm.preferences.get("sub 1")
+
+    assert_equal "GET", t.last.method
+    assert_equal "https://api.cookiemunch.net/v1/preferences/sub%201", t.last.url
+  end
+
+  def test_dsar_erase
+    t = FakeTransport.new(body: JSON.generate("erased" => 1, "encryptionEnabled" => true, "request" => { "id" => "d1" }))
+    cm = CookieMunch::Client.new(api_key: "fck_secret", transport: t)
+
+    cm.dsar.erase("d1", "cbid1", "stamp1")
+
+    assert_equal "POST", t.last.method
+    assert_equal "https://api.cookiemunch.net/v1/dsar/d1/erase", t.last.url
+    assert_equal({ "cbid" => "cbid1", "stamp" => "stamp1" }, JSON.parse(t.last.body))
+  end
+
+  def test_dsar_export
+    t = FakeTransport.new(body: JSON.generate("records" => [], "count" => 0, "request" => { "id" => "d1" }))
+    cm = CookieMunch::Client.new(api_key: "fck_secret", transport: t)
+
+    cm.dsar.export("d1", "cbid1", "stamp1")
+
+    assert_equal "POST", t.last.method
+    assert_equal "https://api.cookiemunch.net/v1/dsar/d1/export", t.last.url
+    assert_equal({ "cbid" => "cbid1", "stamp" => "stamp1" }, JSON.parse(t.last.body))
+  end
+end
+
 # Exercises the REAL default Net::HTTP transport with zero network by stubbing
 # Net::HTTP.start. Proves the request is built with the auth headers and that
 # the response is decoded correctly.

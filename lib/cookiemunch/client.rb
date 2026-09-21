@@ -58,11 +58,27 @@ module CookieMunch
       @keys = Keys.new(self)
       @webhooks = Webhooks.new(self)
       @banners = Banners.new(self)
+      @identity = Identity.new(self)
+      @vault = Vault.new(self)
+      @profile = Profile.new(self)
+      @subscriptions = Subscriptions.new(self)
+      @assessments = Assessments.new(self)
+      @discovery = Discovery.new(self)
+      @ai = Ai.new(self)
+      @fulfillment = Fulfillment.new(self)
+      @regulatory = Regulatory.new(self)
+      @reseller = Reseller.new(self)
+      @subjects = Subjects.new(self)
+      @org = Org.new(self)
+      @assets = Assets.new(self)
     end
 
     # Resource groups mirroring the reference TypeScript SDK surface.
     attr_reader :sites, :consent, :dsar, :vendors, :ropa, :brand_kits,
-                :preferences, :members, :keys, :webhooks, :banners
+                :preferences, :members, :keys, :webhooks, :banners,
+                :identity, :vault, :profile, :subscriptions, :assessments,
+                :discovery, :ai, :fulfillment, :regulatory, :reseller, :subjects,
+                :org, :assets
 
     # GET /v1/me — identity / echo for SDK bootstrapping.
     # @return [Hash] { "orgId", "plan", "keyPrefix" }
@@ -74,6 +90,14 @@ module CookieMunch
     # @return [Hash] { "domains", "seats", "monthlyEvents" }
     def usage
       get("/usage")
+    end
+
+    # GET /v1/audit — the org's audit log, newest first. API actions appear as
+    # "apikey:<prefix>". Requires an unscoped key that is not property-locked.
+    # @return [Hash] { "entries" => [...] }.
+    def audit(limit: nil)
+      query = limit.nil? ? "" : "?#{URI.encode_www_form("limit" => limit)}"
+      get("/audit#{query}")
     end
 
     # Record a consent decision via the PUBLIC ingest endpoint
