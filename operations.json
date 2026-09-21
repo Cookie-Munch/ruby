@@ -1,5 +1,6 @@
 {
   "operations": [
+    "DELETE /v1/assets/{}",
     "DELETE /v1/banners/{}",
     "DELETE /v1/brand-kits/{}",
     "DELETE /v1/keys/{}",

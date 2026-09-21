@@ -715,6 +715,15 @@ module CookieMunch
     def upload(data:, content_type:)
       @client.request("POST", "/assets", body: { "data" => data, "contentType" => content_type })
     end
+
+    # Delete a stored image. Takes the URL +upload+ returned, or just its file name. Only
+    # your own org's images are reachable: the folder comes from your API key.
+    # @return [nil]
+    def delete(url_or_file_name)
+      name = url_or_file_name.to_s.split("/").last.to_s
+      @client.request("DELETE", "/assets/#{enc(name)}")
+      nil
+    end
   end
 
   # /v1/reseller/* — provision and manage child orgs. Needs the reseller:* scopes.

@@ -31,7 +31,7 @@ gem install ./cookiemunch-0.1.0.gem
 require "cookiemunch"
 
 cm = CookieMunch::Client.new(api_key: "fck_your_key")
-# base_url defaults to https://api.cookiemunch.net; override for self-hosted:
+# base_url defaults to https://api.cookiemunch.net; override for a dedicated API domain:
 # cm = CookieMunch::Client.new(api_key: "fck_…", base_url: "https://cmp.example.com")
 
 cm.me
