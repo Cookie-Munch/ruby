@@ -80,6 +80,13 @@ module CookieMunch
       @client.get("/sites/#{enc(cbid)}/banner")
     end
 
+    # Pages where the embed could not load its banner renderer — the host page's CSP or
+    # Trusted Types policy refused it, so nobody there can be asked. Empty is healthy.
+    # @return [Hash] { "reports" }.
+    def blocked(cbid)
+      @client.request("GET", "/sites/#{enc(cbid)}/blocked")
+    end
+
     # The site's privacy and cookie policy, as Markdown.
     def policy(cbid, contact_email: nil, effective_date: nil, jurisdictions: nil)
       query = qs("contactEmail" => contact_email, "effectiveDate" => effective_date,

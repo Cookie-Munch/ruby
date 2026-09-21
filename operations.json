@@ -49,6 +49,7 @@
     "GET /v1/sites/{}",
     "GET /v1/sites/{}/ab",
     "GET /v1/sites/{}/banner",
+    "GET /v1/sites/{}/blocked",
     "GET /v1/sites/{}/config",
     "GET /v1/sites/{}/consent/export",
     "GET /v1/sites/{}/consent/log",
