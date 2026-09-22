@@ -672,6 +672,31 @@ module CookieMunch
       @client.get("/dsar/#{enc(request_id)}/fulfillment")
     end
 
+    # Systems connected to run part of a request themselves (an identity platform, say).
+    def executors
+      @client.get("/dsar/executors")
+    end
+
+    # Connect one. The secret is stored encrypted and never returned; the response carries
+    # the webhook URL to configure in that system.
+    def connect_executor(kind:, base_url:, secret_key:, webhook_secret: nil, system: nil, auto: nil)
+      body = { "kind" => kind, "baseUrl" => base_url, "secretKey" => secret_key }
+      body["webhookSecret"] = webhook_secret unless webhook_secret.nil?
+      body["system"] = system unless system.nil?
+      body["auto"] = auto unless auto.nil?
+      @client.request("POST", "/dsar/executors", body: body)
+    end
+
+    def disconnect_executor(id)
+      @client.request("DELETE", "/dsar/executors/#{enc(id)}")
+      nil
+    end
+
+    # The export bundle a connected system produced, fetched from it on demand.
+    def task_export(request_id, task_id)
+      @client.get("/dsar/#{enc(request_id)}/tasks/#{enc(task_id)}/export")
+    end
+
     # For the in-environment agent: tasks to execute inside your network.
     def pending_tasks(limit: nil)
       @client.get("/dsar/agent/tasks#{qs("limit" => limit)}")
