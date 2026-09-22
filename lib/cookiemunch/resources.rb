@@ -677,12 +677,13 @@ module CookieMunch
       @client.get("/dsar/executors")
     end
 
-    # Connect one. The secret is stored encrypted and never returned; the response carries
-    # the webhook URL to configure in that system.
-    def connect_executor(kind:, base_url:, secret_key:, webhook_secret: nil, system: nil, auto: nil)
-      body = { "kind" => kind, "baseUrl" => base_url, "secretKey" => secret_key }
+    # Connect one. +profile+ describes that system's API — paths, the words it uses for
+    # export and erase, its status vocabulary, how it signs webhooks — so connecting a new
+    # platform needs no code. The secret is stored encrypted and never returned; the response
+    # carries the webhook URL to configure in that system.
+    def connect_executor(system:, base_url:, secret_key:, profile:, webhook_secret: nil, auto: nil)
+      body = { "system" => system, "baseUrl" => base_url, "secretKey" => secret_key, "profile" => profile }
       body["webhookSecret"] = webhook_secret unless webhook_secret.nil?
-      body["system"] = system unless system.nil?
       body["auto"] = auto unless auto.nil?
       @client.request("POST", "/dsar/executors", body: body)
     end
