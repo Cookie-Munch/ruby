@@ -54,6 +54,12 @@ module CookieMunch
       @client.request("PUT", "/sites/#{enc(cbid)}/config", body: config)
     end
 
+    # Change part of a site's config; omitted fields keep their stored value.
+    # (put_config replaces the whole document.)
+    def patch_config(cbid, config)
+      @client.request("PATCH", "/sites/#{enc(cbid)}/config", body: config)
+    end
+
     # Latest categorized cookie declaration (most recent scan snapshot).
     # @return [Hash] { "updatedAt", "cookies" => [...] } (CookieDeclaration).
     def cookies(cbid)

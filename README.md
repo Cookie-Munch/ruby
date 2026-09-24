@@ -95,7 +95,7 @@ Top-level: `me`, `usage`, `audit(limit: nil)`, `log_consent(...)`.
 
 ### `sites`
 `list`, `create(domain:, cbid: nil)`, `get(cbid)`, `delete(cbid)`,
-`get_config(cbid)`, `put_config(cbid, config)`, `cookies(cbid)`, `scan(cbid)`,
+`get_config(cbid)`, `put_config(cbid, config)`, `patch_config(cbid, config)`, `cookies(cbid)`, `scan(cbid)`,
 `scan_status(cbid)`, `ab(cbid)`, `banner(cbid)`, `snippet(cbid, blocking_mode: nil, culture: nil)`,
 `policy(cbid, contact_email:, effective_date:, jurisdictions:)` (Markdown `String`),
 `set_ad_personalization(cbid, enabled:, default:, label:)`, `analyze_session(cbid, har:, requests:, consent:, gpc:)`,
