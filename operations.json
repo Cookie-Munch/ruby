@@ -59,6 +59,7 @@
     "GET /v1/sites/{}/consent/export",
     "GET /v1/sites/{}/consent/log",
     "GET /v1/sites/{}/consent/stats",
+    "GET /v1/sites/{}/consent/verify",
     "GET /v1/sites/{}/cookies",
     "GET /v1/sites/{}/flow",
     "GET /v1/sites/{}/policy",

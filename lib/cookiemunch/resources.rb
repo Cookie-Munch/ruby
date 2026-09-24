@@ -171,6 +171,13 @@ module CookieMunch
 
   # /v1/sites/:cbid/consent/* plus receipt / subject erase & export.
   class Consent < Resource
+    # Verify the consent log's tamper-evident hash chain. Each record carries the hash of
+    # the one before it, so an edited, reordered or removed record answers false.
+    # @return [Hash] { "valid" => true|false }
+    def verify(cbid)
+      @client.get("/sites/#{enc(cbid)}/consent/verify")
+    end
+
     # Aggregated per-day consent stats. @return [Array<Hash>] ConsentDay rows.
     def stats(cbid, from: nil, to: nil)
       @client.get("/sites/#{enc(cbid)}/consent/stats#{qs("from" => from, "to" => to)}")
