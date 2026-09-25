@@ -86,6 +86,15 @@ module CookieMunch
       get("/me")
     end
 
+    # POST /v1/orgs — create a sibling organisation owned by the same account, for
+    # starting a separate business of your own. Needs an unscoped key and counts against
+    # the account's plan org allowance (403 org_limit names the plan). Not reseller
+    # provisioning, which is for organisations you run on behalf of YOUR customers.
+    # @return [Hash] { "org" => { "id", "name", "role" } }
+    def create_org(name)
+      request("POST", "/orgs", body: { name: name })
+    end
+
     # GET /v1/languages — the languages the banner already has copy for. Diff it
     # against your visitors' locales to find the ones you still have to write.
     # @return [Array<Hash>] each { "code", "name", "endonym", "rtl", "source" }
