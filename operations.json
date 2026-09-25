@@ -109,6 +109,7 @@
     "POST /v1/keys",
     "POST /v1/keys/{}/roll",
     "POST /v1/members",
+    "POST /v1/orgs",
     "POST /v1/preferences",
     "POST /v1/profile/activate",
     "POST /v1/profile/attributes",
