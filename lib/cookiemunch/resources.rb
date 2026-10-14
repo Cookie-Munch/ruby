@@ -60,6 +60,13 @@ module CookieMunch
       @client.request("PATCH", "/sites/#{enc(cbid)}/config", body: config)
     end
 
+    # Preview a config write without saving it (?dryRun=1): returns "config" as it
+    # would be saved, "diff" (every leaf that would change) and any "warnings".
+    # replace: true previews a PUT (the diff then lists what would revert to defaults).
+    def dry_run_config(cbid, config, replace: false)
+      @client.request(replace ? "PUT" : "PATCH", "/sites/#{enc(cbid)}/config?dryRun=1", body: config)
+    end
+
     # Latest categorized cookie declaration (most recent scan snapshot).
     # @return [Hash] { "updatedAt", "cookies" => [...] } (CookieDeclaration).
     def cookies(cbid)
@@ -151,6 +158,18 @@ module CookieMunch
       @client.request("POST", "/sites/#{enc(cbid)}/brand", body: {})
     end
 
+    # Mint a short-lived signed token to preview the banner as a visitor in +region+
+    # speaking +lang+ sees it (headless browsers included; nothing is recorded).
+    # @return [Hash] { "cbid", "token", "expiresAt", "previewUrl", "region", "lang" }
+    def preview_token(cbid, region: nil, lang: nil, url: nil, ttl_seconds: nil)
+      body = {}
+      body["region"] = region unless region.nil?
+      body["lang"] = lang unless lang.nil?
+      body["url"] = url unless url.nil?
+      body["ttlSeconds"] = ttl_seconds unless ttl_seconds.nil?
+      @client.request("POST", "/sites/#{enc(cbid)}/preview-token", body: body)
+    end
+
     # Read the v2 banner flow (design) with lint findings.
     def get_flow(cbid)
       @client.get("/sites/#{enc(cbid)}/flow")
@@ -218,10 +237,23 @@ module CookieMunch
 
     # @param type [String] access | deletion | rectification | portability | opt-out.
     # @param regulation [String] "gdpr" | "ccpa".
-    def create(type:, subject_email:, regulation:, note: nil)
+    # +test: true+ files a test request: off the SLA board, labelled, and deletable.
+    def create(type:, subject_email:, regulation:, note: nil, test: nil)
       body = { "type" => type, "subjectEmail" => subject_email, "regulation" => regulation }
       body["note"] = note unless note.nil?
+      body["test"] = test unless test.nil?
       @client.request("POST", "/dsar", body: body)
+    end
+
+    # One request, in the shape +list+ returns.
+    def get(id)
+      @client.get("/dsar/#{enc(id)}")
+    end
+
+    # Delete a TEST request with its tasks and log. Real requests are refused (409).
+    def delete(id)
+      @client.request("DELETE", "/dsar/#{enc(id)}")
+      nil
     end
 
     # @param to_status [String] received | verifying | in_progress | completed | rejected.
@@ -701,9 +733,32 @@ module CookieMunch
       @client.request("POST", "/dsar/executors", body: body)
     end
 
+    UNSET = Object.new.freeze
+
+    # Change a connection in place. Only what you pass changes; the credential is kept unless
+    # +secret_key+ is given. +webhook_secret: nil+ removes the webhook secret.
+    def update_executor(id, profile: nil, base_url: nil, secret_key: nil, webhook_secret: UNSET, auto: nil)
+      body = { "profile" => profile, "baseUrl" => base_url, "secretKey" => secret_key, "auto" => auto }.reject { |_, v| v.nil? }
+      body["webhookSecret"] = webhook_secret unless webhook_secret.equal?(UNSET)
+      @client.request("PATCH", "/dsar/executors/#{enc(id)}", body: body)
+    end
+
     def disconnect_executor(id)
       @client.request("DELETE", "/dsar/executors/#{enc(id)}")
       nil
+    end
+
+    # Try a connection against one email without filing a request: runs the lookup and
+    # returns the raw (redacted) upstream answers. +open: true+ on an export opens and polls a
+    # real export once; an erasure is never sent.
+    def test_executor(id, email:, operation: nil, open: nil)
+      body = { "email" => email, "operation" => operation, "open" => open }.reject { |_, v| v.nil? }
+      @client.request("POST", "/dsar/executors/#{enc(id)}/test", body: body)
+    end
+
+    # One task: its status history, its upstream request log, and its system's versions.
+    def task(request_id, task_id)
+      @client.get("/dsar/#{enc(request_id)}/tasks/#{enc(task_id)}")
     end
 
     # The export bundle a connected system produced, fetched from it on demand.

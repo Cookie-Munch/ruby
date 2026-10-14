@@ -86,6 +86,15 @@ module CookieMunch
       get("/me")
     end
 
+    # GET /v1/orgs — every organisation on this key's account, each with its effective
+    # plan, planSource ("org" = its own subscription, "account" = covered by a higher plan
+    # another org on the account pays for) and subscribedPlan, plus orgLimit and upgradeUrl.
+    # Needs an unscoped key that is not locked to properties.
+    # @return [Hash] { "orgs" => [...], "orgLimit" => { "max", "plan", "used" }, "upgradeUrl" }
+    def list_orgs
+      get("/orgs")
+    end
+
     # POST /v1/orgs — create a sibling organisation owned by the same account, for
     # starting a separate business of your own. Needs an unscoped key and counts against
     # the account's plan org allowance (403 org_limit names the plan). Not reseller
