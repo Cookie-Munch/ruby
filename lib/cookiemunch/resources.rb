@@ -50,11 +50,16 @@ module CookieMunch
       @client.get("/sites/#{enc(cbid)}/config")
     end
 
-    def put_config(cbid, config)
-      @client.request("PUT", "/sites/#{enc(cbid)}/config", body: config)
+    # Replace a site's config. A top-level field +config+ omits reverts to its default —
+    # unless keep_unspecified: true (?keep=unspecified), which keeps its stored value.
+    # A top-level field sent as nil reverts to its default.
+    def put_config(cbid, config, keep_unspecified: false)
+      query = keep_unspecified ? "?keep=unspecified" : ""
+      @client.request("PUT", "/sites/#{enc(cbid)}/config#{query}", body: config)
     end
 
-    # Change part of a site's config; omitted fields keep their stored value.
+    # Change part of a site's config — a JSON Merge Patch (RFC 7386): omitted fields keep
+    # their stored value, and a field set to nil is removed (it takes its default).
     # (put_config replaces the whole document.)
     def patch_config(cbid, config)
       @client.request("PATCH", "/sites/#{enc(cbid)}/config", body: config)
@@ -63,8 +68,10 @@ module CookieMunch
     # Preview a config write without saving it (?dryRun=1): returns "config" as it
     # would be saved, "diff" (every leaf that would change) and any "warnings".
     # replace: true previews a PUT (the diff then lists what would revert to defaults).
-    def dry_run_config(cbid, config, replace: false)
-      @client.request(replace ? "PUT" : "PATCH", "/sites/#{enc(cbid)}/config?dryRun=1", body: config)
+    # keep_unspecified: true (with replace: true) previews put_config(keep_unspecified: true).
+    def dry_run_config(cbid, config, replace: false, keep_unspecified: false)
+      keep = replace && keep_unspecified ? "&keep=unspecified" : ""
+      @client.request(replace ? "PUT" : "PATCH", "/sites/#{enc(cbid)}/config?dryRun=1#{keep}", body: config)
     end
 
     # Latest categorized cookie declaration (most recent scan snapshot).
@@ -105,6 +112,44 @@ module CookieMunch
     # @return [Hash] { "source", "cookies", "unmapped" }.
     def import_declaration(cbid, data)
       @client.request("POST", "/sites/#{enc(cbid)}/import", body: { "data" => data })
+    end
+
+    # Import a declaration exported from another CMP AND declare it: every row whose
+    # category mapped to ours and that has a purpose is declared; the rest come back in
+    # "skipped". Cookies already declared are kept unless overwrite: true.
+    # @return [Hash] ImportedDeclaration plus { "applied", "skipped", "warnings" }.
+    def apply_import(cbid, data, overwrite: false)
+      query = qs("apply" => "1", "overwrite" => (overwrite ? "1" : nil))
+      @client.request("POST", "/sites/#{enc(cbid)}/import#{query}", body: { "data" => data })
+    end
+
+    # Declare what one cookie is. Overrides scanned, observed and database classification
+    # everywhere (API, preference modal, data-cc="declaration"). A name ending in "*"
+    # (or pattern: true) declares a prefix wildcard. category is a standard category or
+    # one of the site's custom category ids.
+    # @return [Hash] { "cookie" => DeclaredCookie, "warnings" }.
+    def declare_cookie(cbid, name, category, purpose, provider: nil, expiry: nil, domain: nil, pattern: nil)
+      body = { "category" => category, "purpose" => purpose }
+      body["provider"] = provider unless provider.nil?
+      body["expiry"] = expiry unless expiry.nil?
+      body["domain"] = domain unless domain.nil?
+      body["pattern"] = pattern unless pattern.nil?
+      @client.request("PUT", "/sites/#{enc(cbid)}/cookies/#{enc(name)}", body: body)
+    end
+
+    # Declare many cookies at once (each { "name", "category", "purpose", ... }).
+    # All-or-nothing; replace: true also removes declarations the list does not name.
+    # @return [Hash] { "declared", "saved", "removed", "warnings" }.
+    def declare_cookies(cbid, cookies, replace: false)
+      body = { "cookies" => cookies }
+      body["replace"] = true if replace
+      @client.request("PUT", "/sites/#{enc(cbid)}/cookies", body: body)
+    end
+
+    # Remove a declaration; the scanned classification applies again.
+    def undeclare_cookie(cbid, name)
+      @client.request("DELETE", "/sites/#{enc(cbid)}/cookies/#{enc(name)}")
+      nil
     end
 
     # The site's privacy and cookie policy, as Markdown.
@@ -254,6 +299,13 @@ module CookieMunch
     def delete(id)
       @client.request("DELETE", "/dsar/#{enc(id)}")
       nil
+    end
+
+    # Mark a CLOSED request (completed or rejected) as a test, after the fact. An open one
+    # is refused (409 request_not_closed). Audited; +delete+ then works on it.
+    # Returns { "request" => ..., "changed" => bool }.
+    def mark_test(id)
+      @client.request("POST", "/dsar/#{enc(id)}/mark-test")
     end
 
     # @param to_status [String] received | verifying | in_progress | completed | rejected.
