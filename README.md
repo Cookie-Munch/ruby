@@ -31,8 +31,7 @@ gem install ./cookiemunch-0.1.0.gem
 require "cookiemunch"
 
 cm = CookieMunch::Client.new(api_key: "fck_your_key")
-# base_url defaults to https://api.cookiemunch.net; override for a dedicated API domain:
-# cm = CookieMunch::Client.new(api_key: "fck_…", base_url: "https://cmp.example.com")
+# The API origin defaults to https://api.cookiemunch.net.
 
 cm.me
 # => { "orgId" => "org_123", "plan" => "pro", "keyPrefix" => "fck_ab" }
@@ -95,7 +94,8 @@ Top-level: `me`, `usage`, `audit(limit: nil)`, `log_consent(...)`.
 
 ### `sites`
 `list`, `create(domain:, cbid: nil)`, `get(cbid)`, `delete(cbid)`,
-`get_config(cbid)`, `put_config(cbid, config)`, `patch_config(cbid, config)`, `cookies(cbid)`, `scan(cbid)`,
+`get_config(cbid)`, `put_config(cbid, config)`, `patch_config(cbid, config)`,
+`lint_config(cbid, config, replace: false)` (consent-button parity, nothing saved), `cookies(cbid)`, `scan(cbid)`,
 `scan_status(cbid)`, `ab(cbid)`, `banner(cbid)`, `snippet(cbid, blocking_mode: nil, culture: nil)`,
 `policy(cbid, contact_email:, effective_date:, jurisdictions:)` (Markdown `String`),
 `set_ad_personalization(cbid, enabled:, default:, label:)`, `analyze_session(cbid, har:, requests:, consent:, gpc:)`,
@@ -121,6 +121,17 @@ Top-level: `me`, `usage`, `audit(limit: nil)`, `log_consent(...)`.
 ### `brand_kits`
 `list`, `create(kit_hash)`, `delete(id)`.
 
+### `rights_page`
+`get(cbid)`, `put(cbid, page)`, `patch(cbid, page)`, `dry_run(cbid, page, replace: false)`, `get_published(cbid)`,
+`publish(cbid, base_updated_at: …)`, `versions(cbid)`, `rollback(cbid, version, base_updated_at: …)`. Pass the draft's
+`updatedAt` as `base_updated_at` so only the draft you read goes live (409 `draft_conflict` otherwise); a rollback
+replaces the draft. Custom domains: `list_domains(cbid)`, `add_domain(cbid, hostname)`, `verify_domain(cbid, hostname)`,
+`remove_domain(cbid, hostname)`.
+
+### `rights_links`
+`create(cbid, email:, user_id: nil, rights: nil, ttl_seconds: nil)` — a signed, single-use link to the rights page for
+a person your backend knows is signed in.
+
 ### `preferences`
 `list`, `save(subject_id, purposes)`, `get(subject_id)`.
 
@@ -144,7 +155,20 @@ returned once); `update(prefix, name:, scopes:, cbids:)` changes only the fields
 ### `org`
 Requires an unscoped key that is not property-locked. `get`, `update(name:, logo_url:)`
 — pass `logo_url: nil` to remove the logo (sent as JSON `null`); omit it to leave the
-logo unchanged. Deleting the org is not available through the API.
+logo unchanged. Deleting the org is not available through the API. Your own provider for rights-request mail:
+`mail_provider`, `set_mail_provider(provider:, from_email:, secret:, …)`, `test_mail_provider(to = nil)`,
+`remove_mail_provider` — it carries verification codes once a test succeeds; there is no shared sender.
+The defaults for sites without their own setting: `rights_captcha`, `set_rights_captcha`, `remove_rights_captcha`,
+`rights_identity`, `set_rights_identity(type:, issuer:, …)`, `remove_rights_identity`.
+
+### `rights_captcha`
+`get(cbid)`, `set(cbid, mode:, …)`, `remove(cbid)` — a site's own rights-page captcha (your keys, or off).
+
+### `rights_identity`
+`get(cbid)`, `set(cbid, type:, issuer:, jwks_url: nil, audience: nil, authorized_parties: nil, email_claim: nil,
+email_verified_claim: nil, session_cookie_name: nil)`, `remove(cbid)` — a site's sign-in provider (`clerk`, `atlas`
+or `oidc_jwt`): a visitor signed in to your site is verified by their session, with no code mail. `authorized_parties`
+(your own origins) is required for clerk and atlas; the JWKS is fetched and checked before anything is saved.
 
 ### `assets`
 `upload(data:, content_type:)` — uploads a banner image (base64, or a `data:` URL;

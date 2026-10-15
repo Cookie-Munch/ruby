@@ -478,4 +478,126 @@ class NetHttpTransportTest < Minitest::Test
     assert_equal 401, err.status
     assert_equal "authentication required", err.message
   end
+
+  def test_rights_links_create_sends_the_subject_and_options
+    t = FakeTransport.new(body: JSON.generate("url" => "https://cookiemunch.net/r/s1?t=a.b", "expiresAt" => 1))
+    cm = CookieMunch::Client.new(api_key: "fck_secret", transport: t)
+    out = cm.rights_links.create("s1", email: "p@x.com", user_id: "u-1", rights: ["access"], ttl_seconds: 600)
+    assert_equal "https://cookiemunch.net/r/s1?t=a.b", out["url"]
+    assert_equal "POST", t.last.method
+    assert_equal "https://api.cookiemunch.net/v1/sites/s1/rights-links", t.last.url
+    assert_equal({ "subject" => { "email" => "p@x.com", "userId" => "u-1" }, "rights" => ["access"], "ttlSeconds" => 600 }, JSON.parse(t.last.body))
+    cm.rights_links.create("s1", email: "p@x.com")
+    assert_equal({ "subject" => { "email" => "p@x.com" } }, JSON.parse(t.last.body))
+  end
+end
+
+class OrgMailProviderTest < Minitest::Test
+  def test_get_set_test_remove
+    t = FakeTransport.new(body: JSON.generate({}))
+    cm = CookieMunch::Client.new(api_key: "fck_secret", transport: t)
+
+    cm.org.mail_provider
+    assert_equal ["GET", "https://api.cookiemunch.net/v1/org/mail-provider"], [t.last.method, t.last.url]
+
+    cm.org.set_mail_provider(provider: "postmark", from_email: "p@acme.com", secret: "tok", reply_to: "dpo@acme.com")
+    assert_equal ["PUT", "https://api.cookiemunch.net/v1/org/mail-provider"], [t.last.method, t.last.url]
+    assert_equal({ "provider" => "postmark", "fromEmail" => "p@acme.com", "replyTo" => "dpo@acme.com", "secret" => "tok" }, JSON.parse(t.last.body))
+
+    cm.org.test_mail_provider("me@acme.com")
+    assert_equal ["POST", "https://api.cookiemunch.net/v1/org/mail-provider/test"], [t.last.method, t.last.url]
+    assert_equal({ "to" => "me@acme.com" }, JSON.parse(t.last.body))
+    cm.org.test_mail_provider
+    assert_equal({}, JSON.parse(t.last.body))
+
+    cm.org.remove_mail_provider
+    assert_equal ["DELETE", "https://api.cookiemunch.net/v1/org/mail-provider"], [t.last.method, t.last.url]
+  end
+end
+
+class RightsPageSdkTest < Minitest::Test
+  def test_rights_page_dry_run_and_rollback
+    t = FakeTransport.new(body: JSON.generate({}))
+    cm = CookieMunch::Client.new(api_key: "fck_secret", transport: t)
+
+    cm.rights_page.dry_run("s1", { "seo" => { "title" => "x" } })
+    assert_equal "PATCH", t.last.method
+    assert_equal "https://api.cookiemunch.net/v1/sites/s1/rights-page?dryRun=1", t.last.url
+    cm.rights_page.dry_run("s1", { "v" => 1 }, replace: true)
+    assert_equal "PUT", t.last.method
+    cm.rights_page.rollback("s1", 2)
+    assert_equal "https://api.cookiemunch.net/v1/sites/s1/rights-page/rollback", t.last.url
+    assert_equal({ "version" => 2 }, JSON.parse(t.last.body))
+  end
+
+  def test_publish_and_rollback_send_base_updated_at
+    t = FakeTransport.new(body: JSON.generate({}))
+    cm = CookieMunch::Client.new(api_key: "fck_secret", transport: t)
+    cm.rights_page.publish("s1", base_updated_at: 7)
+    assert_equal({ "baseUpdatedAt" => 7 }, JSON.parse(t.last.body))
+    cm.rights_page.publish("s1", base_updated_at: nil)
+    assert_equal({ "baseUpdatedAt" => nil }, JSON.parse(t.last.body))
+    cm.rights_page.publish("s1")
+    assert_equal({}, JSON.parse(t.last.body))
+    cm.rights_page.rollback("s1", 2, base_updated_at: 9)
+    assert_equal({ "version" => 2, "baseUpdatedAt" => 9 }, JSON.parse(t.last.body))
+    cm.rights_page.rollback("s1", 2, base_updated_at: nil)
+    assert_equal({ "version" => 2, "baseUpdatedAt" => nil }, JSON.parse(t.last.body))
+  end
+end
+
+class RightsIdentitySdkTest < Minitest::Test
+  def test_site_and_org_default
+    t = FakeTransport.new(body: JSON.generate({}))
+    cm = CookieMunch::Client.new(api_key: "fck_secret", transport: t)
+
+    cm.rights_identity.get("s 1")
+    assert_equal ["GET", "https://api.cookiemunch.net/v1/sites/s%201/rights-identity"], [t.last.method, t.last.url]
+    cm.rights_identity.set("s1", type: "clerk", issuer: "https://clerk.acme.example", authorized_parties: ["https://www.acme.example"], trust_email_claim: true)
+    assert_equal ["PUT", "https://api.cookiemunch.net/v1/sites/s1/rights-identity"], [t.last.method, t.last.url]
+    assert_equal({ "type" => "clerk", "issuer" => "https://clerk.acme.example", "authorizedParties" => ["https://www.acme.example"], "trustEmailClaim" => true }, JSON.parse(t.last.body))
+    cm.rights_identity.remove("s1")
+    assert_equal ["DELETE", "https://api.cookiemunch.net/v1/sites/s1/rights-identity"], [t.last.method, t.last.url]
+
+    cm.org.rights_identity
+    assert_equal ["GET", "https://api.cookiemunch.net/v1/org/rights-identity"], [t.last.method, t.last.url]
+    cm.org.set_rights_identity(type: "oidc_jwt", issuer: "https://id.acme.example", jwks_url: "https://id.acme.example/keys", audience: "acme-rights", session_cookie_name: "sid")
+    assert_equal({ "type" => "oidc_jwt", "issuer" => "https://id.acme.example", "jwksUrl" => "https://id.acme.example/keys", "audience" => "acme-rights", "sessionCookieName" => "sid" }, JSON.parse(t.last.body))
+    cm.org.remove_rights_identity
+    assert_equal ["DELETE", "https://api.cookiemunch.net/v1/org/rights-identity"], [t.last.method, t.last.url]
+  end
+end
+
+class RightsCaptchaSdkTest < Minitest::Test
+  def test_site_and_org_default
+    t = FakeTransport.new(body: JSON.generate({}))
+    cm = CookieMunch::Client.new(api_key: "fck_secret", transport: t)
+
+    cm.rights_captcha.get("s 1")
+    assert_equal ["GET", "https://api.cookiemunch.net/v1/sites/s%201/rights-captcha"], [t.last.method, t.last.url]
+    cm.rights_captcha.set("s1", mode: "own", provider: "hcaptcha", site_key: "k-12345678", secret: "sec")
+    assert_equal ["PUT", "https://api.cookiemunch.net/v1/sites/s1/rights-captcha"], [t.last.method, t.last.url]
+    assert_equal({ "mode" => "own", "provider" => "hcaptcha", "siteKey" => "k-12345678", "secret" => "sec" }, JSON.parse(t.last.body))
+    cm.rights_captcha.remove("s1")
+    assert_equal ["DELETE", "https://api.cookiemunch.net/v1/sites/s1/rights-captcha"], [t.last.method, t.last.url]
+
+    cm.org.rights_captcha
+    assert_equal ["GET", "https://api.cookiemunch.net/v1/org/rights-captcha"], [t.last.method, t.last.url]
+    cm.org.set_rights_captcha(mode: "off")
+    assert_equal({ "mode" => "off" }, JSON.parse(t.last.body))
+    cm.org.remove_rights_captcha
+    assert_equal ["DELETE", "https://api.cookiemunch.net/v1/org/rights-captcha"], [t.last.method, t.last.url]
+  end
+end
+
+class LintConfigSdkTest < Minitest::Test
+  def test_lint_config_posts_and_replace_adds_the_flag
+    t = FakeTransport.new(body: JSON.generate({ "designWarnings" => [], "score" => 100 }))
+    cm = CookieMunch::Client.new(api_key: "fck_secret", transport: t)
+    cm.sites.lint_config("s1", { "banner" => { "type" => "accept-only" } })
+    assert_equal ["POST", "https://api.cookiemunch.net/v1/sites/s1/config/lint"], [t.last.method, t.last.url]
+    assert_equal({ "banner" => { "type" => "accept-only" } }, JSON.parse(t.last.body))
+    cm.sites.lint_config("s1", { "v" => 2 }, replace: true)
+    assert_equal "https://api.cookiemunch.net/v1/sites/s1/config/lint?replace=1", t.last.url
+  end
 end

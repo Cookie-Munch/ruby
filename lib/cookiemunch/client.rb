@@ -53,6 +53,7 @@ module CookieMunch
       @vendors = Vendors.new(self)
       @ropa = Ropa.new(self)
       @brand_kits = BrandKits.new(self)
+      @rights_page = RightsPage.new(self)
       @preferences = Preferences.new(self)
       @members = Members.new(self)
       @keys = Keys.new(self)
@@ -69,16 +70,19 @@ module CookieMunch
       @regulatory = Regulatory.new(self)
       @reseller = Reseller.new(self)
       @subjects = Subjects.new(self)
+      @rights_links = RightsLinks.new(self)
+      @rights_captcha = RightsCaptcha.new(self)
+      @rights_identity = RightsIdentity.new(self)
       @org = Org.new(self)
       @assets = Assets.new(self)
     end
 
     # Resource groups mirroring the reference TypeScript SDK surface.
-    attr_reader :sites, :consent, :dsar, :vendors, :ropa, :brand_kits,
+    attr_reader :sites, :consent, :dsar, :vendors, :ropa, :brand_kits, :rights_page,
                 :preferences, :members, :keys, :webhooks, :banners,
                 :identity, :vault, :profile, :subscriptions, :assessments,
                 :discovery, :ai, :fulfillment, :regulatory, :reseller, :subjects,
-                :org, :assets
+                :org, :assets, :rights_links, :rights_captcha, :rights_identity
 
     # GET /v1/me — identity / echo for SDK bootstrapping.
     # @return [Hash] { "orgId", "plan", "keyPrefix" }

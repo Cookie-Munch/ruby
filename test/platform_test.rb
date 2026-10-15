@@ -64,4 +64,19 @@ class PlatformTest < Minitest::Test
       assert_equal ids, body_of(call)["identifiers"]
     end
   end
+
+  def test_rights_page_domains
+    t = FakeTransport.new
+    c = client(t)
+    c.rights_page.list_domains("s 1")
+    c.rights_page.add_domain("s", "privacy.acme.com")
+    c.rights_page.verify_domain("s", "privacy.acme.com")
+    c.rights_page.remove_domain("s", "privacy.acme.com")
+    base = "https://api.example.com/v1/sites"
+    assert_equal %w[GET POST POST DELETE], t.calls.map(&:method)
+    assert_equal "#{base}/s%201/rights-page/domains", t.calls[0].url
+    assert_equal({ "hostname" => "privacy.acme.com" }, body_of(t.calls[1]))
+    assert_equal "#{base}/s/rights-page/domains/privacy.acme.com/verify", t.calls[2].url
+    assert_equal "#{base}/s/rights-page/domains/privacy.acme.com", t.calls[3].url
+  end
 end

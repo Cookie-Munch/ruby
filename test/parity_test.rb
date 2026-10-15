@@ -23,10 +23,10 @@ class ParityTest < Minitest::Test
 
   ARRAYS = %w[identifiers cbids scopes topics rules systems decisions operations events sites
               jurisdictions key_scopes requests].freeze
-  HASHES = %w[config purposes attributes evidence map policy input vendor entry kit patch
+  HASHES = %w[config purposes attributes evidence map policy input vendor entry kit patch page
               json controller white_label consent har].freeze
   BOOLS = %w[ok enabled opted_in purge mint_key delegated_access include_historical gpc default].freeze
-  INTS = %w[limit days expires_in_days from to].freeze
+  INTS = %w[limit days expires_in_days from to version].freeze
 
   def placeholder(name)
     name = name.to_s

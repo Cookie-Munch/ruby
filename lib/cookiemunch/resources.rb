@@ -74,6 +74,16 @@ module CookieMunch
       @client.request(replace ? "PUT" : "PATCH", "/sites/#{enc(cbid)}/config?dryRun=1#{keep}", body: config)
     end
 
+    # Check a proposed config for consent-button parity without saving it
+    # (POST /v1/sites/{cbid}/config/lint): is "Accept all" more prominent than "Reject all"
+    # anywhere (colour, size, placement, copy, custom CSS)? Returns "designWarnings",
+    # "score" (0-100) and "suggestedReject". It checks exactly what the write would store:
+    # merged as patch_config would, or with replace: true replaced as put_config would.
+    # Needs only sites:read.
+    def lint_config(cbid, config, replace: false)
+      @client.request("POST", "/sites/#{enc(cbid)}/config/lint#{replace ? '?replace=1' : ''}", body: config)
+    end
+
     # Latest categorized cookie declaration (most recent scan snapshot).
     # @return [Hash] { "updatedAt", "cookies" => [...] } (CookieDeclaration).
     def cookies(cbid)
@@ -360,6 +370,77 @@ module CookieMunch
     # The org's RoPA (GDPR Art. 30), as CSV.
     def export_csv
       @client.request("GET", "/ropa/export.csv", raw: true)
+    end
+  end
+
+  # /v1/sites/:cbid/rights-page — the hosted rights page document.
+  class RightsPage < Resource
+    # "Not given" for base_updated_at (nil is a real value: no draft saved yet).
+    UNSET_BASE = Object.new.freeze
+    def get(cbid)
+      @client.get("/sites/#{enc(cbid)}/rights-page")
+    end
+
+    # Replace the draft. Nothing is live until #publish.
+    # Add "baseUpdatedAt" (the draft's updatedAt as last read; nil if it had none) to page to
+    # refuse overwriting a newer save: a mismatch is a 409 draft_conflict.
+    def put(cbid, page)
+      @client.request("PUT", "/sites/#{enc(cbid)}/rights-page", body: page)
+    end
+
+    # Merge into the draft: hashes merge, arrays replace, nil removes.
+    def patch(cbid, page)
+      @client.request("PATCH", "/sites/#{enc(cbid)}/rights-page", body: page)
+    end
+
+    def dry_run(cbid, page, replace: false)
+      @client.request(replace ? "PUT" : "PATCH", "/sites/#{enc(cbid)}/rights-page?dryRun=1", body: page)
+    end
+
+    def get_published(cbid)
+      @client.get("/sites/#{enc(cbid)}/rights-page/published")
+    end
+
+    # Publish the draft; it goes live at once. Pass base_updated_at (the draft's updatedAt as
+    # last read; nil if it had none) so only the draft you saw goes live: 409 draft_conflict otherwise.
+    def publish(cbid, base_updated_at: UNSET_BASE)
+      body = base_updated_at.equal?(UNSET_BASE) ? {} : { "baseUpdatedAt" => base_updated_at }
+      @client.request("POST", "/sites/#{enc(cbid)}/rights-page/publish", body: body)
+    end
+
+    def versions(cbid)
+      @client.get("/sites/#{enc(cbid)}/rights-page/versions")
+    end
+
+    # Publish an earlier version again; it goes live at once and REPLACES the current draft
+    # (unpublished edits are lost). base_updated_at refuses with 409 draft_conflict if the draft moved.
+    def rollback(cbid, version, base_updated_at: UNSET_BASE)
+      body = { "version" => version }
+      body["baseUpdatedAt"] = base_updated_at unless base_updated_at.equal?(UNSET_BASE)
+      @client.request("POST", "/sites/#{enc(cbid)}/rights-page/rollback", body: body)
+    end
+
+    # Custom hostnames serving the rights page.
+    # @return [Hash] { "domains", "limit" (nil = unlimited), "used", "target" }
+    def list_domains(cbid)
+      @client.get("/sites/#{enc(cbid)}/rights-page/domains")
+    end
+
+    # Add a custom hostname (e.g. privacy.example.com); "dns" holds the records to create.
+    def add_domain(cbid, hostname)
+      @client.request("POST", "/sites/#{enc(cbid)}/rights-page/domains", body: { "hostname" => hostname })
+    end
+
+    # Check it now: DNS while pending, the HTTPS answer once routed.
+    def verify_domain(cbid, hostname)
+      @client.request("POST", "/sites/#{enc(cbid)}/rights-page/domains/#{enc(hostname)}/verify")
+    end
+
+    # Remove it: it stops being served and its certificate is not renewed.
+    # @return [nil]
+    def remove_domain(cbid, hostname)
+      @client.request("DELETE", "/sites/#{enc(cbid)}/rights-page/domains/#{enc(hostname)}")
+      nil
     end
   end
 
@@ -842,6 +923,84 @@ module CookieMunch
     end
   end
 
+  # POST /v1/sites/{cbid}/rights-links — account-linked rights requests.
+  class RightsLinks < Resource
+    # Mint a signed, single-use link to the hosted rights page for a person your backend knows is
+    # signed in. The page locks their email and skips the code step. Show the "url" only to that
+    # person. Needs dsar:write.
+    # @return [Hash] { "url", "expiresAt" }
+    def create(cbid, email:, user_id: nil, rights: nil, ttl_seconds: nil)
+      subject = { "email" => email }
+      subject["userId"] = user_id unless user_id.nil?
+      body = { "subject" => subject }
+      body["rights"] = Array(rights) unless rights.nil?
+      body["ttlSeconds"] = ttl_seconds unless ttl_seconds.nil?
+      @client.request("POST", "/sites/#{enc(cbid)}/rights-links", body: body)
+    end
+  end
+
+  # /v1/sites/{cbid}/rights-captcha — a site's rights-page captcha: your own Turnstile, hCaptcha or
+  # reCAPTCHA keys (recommended), or off. A site without its own setting uses the organisation
+  # default (+org.rights_captcha+), else off. Cookie Munch's own captcha is never used on rights
+  # pages. Needs sites:read / sites:write.
+  class RightsCaptcha < Resource
+    # The setting in force ("source": site, org or default). Never the secret.
+    def get(cbid)
+      @client.get("/sites/#{enc(cbid)}/rights-captcha")
+    end
+
+    # +mode: "own"+ with provider (turnstile, hcaptcha, recaptcha_v2, recaptcha_v3), site_key and
+    # secret (write-only; omit to keep the stored one) — the provider must accept the secret before
+    # it is saved. +min_score+ is for recaptcha_v3 (0.1-0.9). +mode: "off"+ removes spam
+    # protection beyond the spam-trap field, the rate limits and the email code.
+    def set(cbid, mode:, provider: nil, site_key: nil, secret: nil, min_score: nil)
+      @client.request("PUT", "/sites/#{enc(cbid)}/rights-captcha", body: RightsCaptcha.body(mode, provider, site_key, secret, min_score))
+    end
+
+    # Remove the site's own setting: it inherits the organisation default again. Returns the
+    # setting now in force.
+    def remove(cbid)
+      @client.request("DELETE", "/sites/#{enc(cbid)}/rights-captcha")
+    end
+
+    def self.body(mode, provider, site_key, secret, min_score)
+      { "mode" => mode, "provider" => provider, "siteKey" => site_key, "secret" => secret, "minScore" => min_score }.reject { |_, v| v.nil? }
+    end
+  end
+
+  # /v1/sites/{cbid}/rights-identity — a site's sign-in provider (Clerk, Atlas or any JWKS
+  # issuer): a visitor signed in to your site is verified by their session, with no code mail. A
+  # site without its own setting uses the organisation default (+org.rights_identity+). Needs
+  # sites:read / sites:write.
+  class RightsIdentity < Resource
+    # The setting in force ("source": site, org or default).
+    def get(cbid)
+      @client.get("/sites/#{enc(cbid)}/rights-identity")
+    end
+
+    # +type+ is clerk, atlas or oidc_jwt; +issuer+ exactly the token's iss. +jwks_url+ is required
+    # for oidc_jwt (clerk/atlas: <issuer>/.well-known/jwks.json); +authorized_parties+ (your own
+    # origins) is required for clerk and atlas. The JWKS is fetched and checked before anything is
+    # saved; oidc_jwt needs +audience+ or +authorized_parties+. The token must carry the email and a
+    # verified-email claim set to true; +trust_email_claim+ (clerk/atlas only) accepts a token without it.
+    def set(cbid, type:, issuer:, jwks_url: nil, audience: nil, authorized_parties: nil, email_claim: nil, email_verified_claim: nil, session_cookie_name: nil, trust_email_claim: nil)
+      @client.request("PUT", "/sites/#{enc(cbid)}/rights-identity",
+                      body: RightsIdentity.body(type, issuer, jwks_url, audience, authorized_parties, email_claim, email_verified_claim, session_cookie_name, trust_email_claim))
+    end
+
+    # Remove the site's own setting: it inherits the organisation default again.
+    def remove(cbid)
+      @client.request("DELETE", "/sites/#{enc(cbid)}/rights-identity")
+    end
+
+    def self.body(type, issuer, jwks_url, audience, authorized_parties, email_claim, email_verified_claim, session_cookie_name, trust_email_claim = nil)
+      { "type" => type, "issuer" => issuer, "jwksUrl" => jwks_url, "audience" => audience,
+        "authorizedParties" => authorized_parties, "emailClaim" => email_claim,
+        "emailVerifiedClaim" => email_verified_claim, "sessionCookieName" => session_cookie_name,
+        "trustEmailClaim" => trust_email_claim }.reject { |_, v| v.nil? }
+    end
+  end
+
   # /v1/subjects/* — one person's consent across every site, by the subject id your apps attach.
   class Subjects < Resource
     # Needs consent:read; not available to property-locked keys.
@@ -865,6 +1024,69 @@ module CookieMunch
       body = { "name" => name }.reject { |_, v| v.nil? }
       body["logoUrl"] = logo_url unless logo_url.equal?(UNSET)
       @client.request("PATCH", "/org", body: body)
+    end
+
+    # Your own mail provider for rights-request mail. Never returns the credential, only
+    # +secretLast4+; +sender+ says whether verification codes go through it now (+own+) or are
+    # not mailed at all (+none+) — there is no shared sender.
+    def mail_provider
+      @client.get("/org/mail-provider")
+    end
+
+    # Connect your own mail provider (recommended): brevo, sendgrid, postmark, resend,
+    # ses (+ses: { "region" =>, "accessKeyId" => }+) or smtp
+    # (+smtp: { "host" =>, "port" =>, "security" =>, "username" => }+). Replaces the stored
+    # one; it carries rights mail only after +test_mail_provider+ succeeds. +secret+ is
+    # write-only; omit it to keep the stored one (same provider only).
+    def set_mail_provider(provider:, from_email:, secret: nil, from_name: nil, reply_to: nil, ses: nil, smtp: nil)
+      body = {
+        "provider" => provider, "fromEmail" => from_email, "fromName" => from_name,
+        "replyTo" => reply_to, "secret" => secret, "ses" => ses, "smtp" => smtp
+      }.reject { |_, v| v.nil? }
+      @client.request("PUT", "/org/mail-provider", body: body)
+    end
+
+    # Send a test through your provider. +to+ defaults to the reply-to, else the from address.
+    # A refusal comes back as +ok: false+ with the provider's reason.
+    def test_mail_provider(to = nil)
+      @client.request("POST", "/org/mail-provider/test", body: to ? { "to" => to } : {})
+    end
+
+    # Remove your provider; no verification codes are mailed after this.
+    def remove_mail_provider
+      @client.request("DELETE", "/org/mail-provider")
+      nil
+    end
+
+    # The default captcha for your rights pages (sites without their own). Never the secret.
+    def rights_captcha
+      @client.get("/org/rights-captcha")
+    end
+
+    # Set the default: own keys (recommended) or off. Same fields as +rights_captcha.set+.
+    def set_rights_captcha(mode:, provider: nil, site_key: nil, secret: nil, min_score: nil)
+      @client.request("PUT", "/org/rights-captcha", body: RightsCaptcha.body(mode, provider, site_key, secret, min_score))
+    end
+
+    # Remove the default: sites without their own setting have no captcha.
+    def remove_rights_captcha
+      @client.request("DELETE", "/org/rights-captcha")
+    end
+
+    # The default sign-in provider rights requests are verified with (sites without their own).
+    def rights_identity
+      @client.get("/org/rights-identity")
+    end
+
+    # Set the default. Same fields as +rights_identity.set+.
+    def set_rights_identity(type:, issuer:, jwks_url: nil, audience: nil, authorized_parties: nil, email_claim: nil, email_verified_claim: nil, session_cookie_name: nil, trust_email_claim: nil)
+      @client.request("PUT", "/org/rights-identity",
+                      body: RightsIdentity.body(type, issuer, jwks_url, audience, authorized_parties, email_claim, email_verified_claim, session_cookie_name, trust_email_claim))
+    end
+
+    # Remove the default sign-in provider.
+    def remove_rights_identity
+      @client.request("DELETE", "/org/rights-identity")
     end
   end
 
