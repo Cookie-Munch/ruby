@@ -12,6 +12,28 @@ class PlatformTest < Minitest::Test
     call.body ? JSON.parse(call.body) : nil
   end
 
+  # Numestri F-01: per-language purposes, and dry_run on every declaration write.
+  def test_declared_cookies_purposes_and_dry_run
+    t = FakeTransport.new
+    c = client(t)
+    c.sites.declare_cookie("cb", "sid", "necessary", "Signed in.", purposes: { "es" => "Sesión." })
+    c.sites.declare_cookie("cb", "sid", "necessary", "Signed in.", dry_run: true)
+    c.sites.declare_cookies("cb", [{ "name" => "a", "category" => "necessary", "purpose" => "A" }], replace: true, dry_run: true)
+    out = c.sites.undeclare_cookie("cb", "sid", dry_run: true)
+    assert_equal "https://api.example.com/v1/sites/cb/cookies/sid", t.calls[0].url
+    assert_equal({ "category" => "necessary", "purpose" => "Signed in.", "purposes" => { "es" => "Sesión." } }, body_of(t.calls[0]))
+    assert_equal "https://api.example.com/v1/sites/cb/cookies/sid?dryRun=1", t.calls[1].url
+    assert_equal "https://api.example.com/v1/sites/cb/cookies?dryRun=1", t.calls[2].url
+    assert_equal true, body_of(t.calls[2])["replace"]
+    assert_equal ["DELETE", "https://api.example.com/v1/sites/cb/cookies/sid?dryRun=1"], [t.calls[3].method, t.calls[3].url]
+    assert_equal({}, out)
+  end
+
+  def test_undeclare_without_dry_run_returns_nil
+    t = FakeTransport.new(status: 204, body: "")
+    assert_nil client(t).sites.undeclare_cookie("cb", "sid")
+  end
+
   def test_deprovision_suspends_by_default_and_purges_only_when_asked
     t = FakeTransport.new(status: 204, body: "")
     c = client(t)
@@ -78,5 +100,23 @@ class PlatformTest < Minitest::Test
     assert_equal({ "hostname" => "privacy.acme.com" }, body_of(t.calls[1]))
     assert_equal "#{base}/s/rights-page/domains/privacy.acme.com/verify", t.calls[2].url
     assert_equal "#{base}/s/rights-page/domains/privacy.acme.com", t.calls[3].url
+  end
+
+  def test_executor_webhook_check_deliveries_and_dry_runs
+    t = FakeTransport.new
+    c = client(t)
+    c.fulfillment.test_executor_webhook("ex 1", headers: { "x-sig" => "v1,abc" }, body: '{"a":1}')
+    c.fulfillment.executor_webhook_deliveries("ex 1")
+    c.fulfillment.connect_executor(system: "crm", base_url: "https://crm.example", secret_key: "sk_12345678", profile: {}, dry_run: true)
+    c.fulfillment.update_executor("ex 1", auto: false, dry_run: true)
+    c.fulfillment.update_executor("ex 1", auto: false)
+    assert_equal [
+      "POST https://api.example.com/v1/dsar/executors/ex%201/webhook/test",
+      "GET https://api.example.com/v1/dsar/executors/ex%201/webhook/deliveries",
+      "POST https://api.example.com/v1/dsar/executors?dryRun=1",
+      "PATCH https://api.example.com/v1/dsar/executors/ex%201?dryRun=1",
+      "PATCH https://api.example.com/v1/dsar/executors/ex%201"
+    ], t.calls.map { |x| "#{x.method} #{x.url}" }
+    assert_equal({ "headers" => { "x-sig" => "v1,abc" }, "body" => '{"a":1}' }, body_of(t.calls[0]))
   end
 end

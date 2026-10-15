@@ -138,26 +138,34 @@ module CookieMunch
     # (or pattern: true) declares a prefix wildcard. category is a standard category or
     # one of the site's custom category ids.
     # @return [Hash] { "cookie" => DeclaredCookie, "warnings" }.
-    def declare_cookie(cbid, name, category, purpose, provider: nil, expiry: nil, domain: nil, pattern: nil)
+    # purposes: the purpose in other languages ({ "es" => "…", "pt-BR" => "…" }); purpose is
+    # the fallback. dry_run: true stores nothing and answers with "declared" and a "diff".
+    def declare_cookie(cbid, name, category, purpose, provider: nil, expiry: nil, domain: nil, pattern: nil,
+                       purposes: nil, dry_run: false)
       body = { "category" => category, "purpose" => purpose }
       body["provider"] = provider unless provider.nil?
       body["expiry"] = expiry unless expiry.nil?
       body["domain"] = domain unless domain.nil?
       body["pattern"] = pattern unless pattern.nil?
-      @client.request("PUT", "/sites/#{enc(cbid)}/cookies/#{enc(name)}", body: body)
+      body["purposes"] = purposes unless purposes.nil?
+      @client.request("PUT", "/sites/#{enc(cbid)}/cookies/#{enc(name)}#{qs("dryRun" => dry_run ? "1" : nil)}", body: body)
     end
 
-    # Declare many cookies at once (each { "name", "category", "purpose", ... }).
-    # All-or-nothing; replace: true also removes declarations the list does not name.
+    # Declare many cookies at once (each { "name", "category", "purpose", "purposes"?, ... }).
+    # All-or-nothing; replace: true also removes declarations the list does not name;
+    # dry_run: true stores nothing and answers with what would be, plus a "diff".
     # @return [Hash] { "declared", "saved", "removed", "warnings" }.
-    def declare_cookies(cbid, cookies, replace: false)
+    def declare_cookies(cbid, cookies, replace: false, dry_run: false)
       body = { "cookies" => cookies }
       body["replace"] = true if replace
-      @client.request("PUT", "/sites/#{enc(cbid)}/cookies", body: body)
+      @client.request("PUT", "/sites/#{enc(cbid)}/cookies#{qs("dryRun" => dry_run ? "1" : nil)}", body: body)
     end
 
-    # Remove a declaration; the scanned classification applies again.
-    def undeclare_cookie(cbid, name)
+    # Remove a declaration; the scanned classification applies again. With dry_run: true
+    # nothing is removed and the answer is the would-be list ("declared") and a "diff".
+    def undeclare_cookie(cbid, name, dry_run: false)
+      return @client.request("DELETE", "/sites/#{enc(cbid)}/cookies/#{enc(name)}?dryRun=1") if dry_run
+
       @client.request("DELETE", "/sites/#{enc(cbid)}/cookies/#{enc(name)}")
       nil
     end
@@ -858,22 +866,37 @@ module CookieMunch
     # Connect one. +profile+ describes that system's API — paths, the words it uses for
     # export and erase, its status vocabulary, how it signs webhooks — so connecting a new
     # platform needs no code. The secret is stored encrypted and never returned; the response
-    # carries the webhook URL to configure in that system.
-    def connect_executor(system:, base_url:, secret_key:, profile:, webhook_secret: nil, auto: nil)
+    # carries the webhook URL to configure in that system. +dry_run: true+ (?dryRun=1)
+    # validates everything and returns the would-be connection and a diff, storing nothing.
+    # A whsec_<base64> webhook secret verifies deliveries signed with its base64-decoded bytes
+    # or with the literal string; any other only with its UTF-8 bytes.
+    def connect_executor(system:, base_url:, secret_key:, profile:, webhook_secret: nil, auto: nil, dry_run: false)
       body = { "system" => system, "baseUrl" => base_url, "secretKey" => secret_key, "profile" => profile }
       body["webhookSecret"] = webhook_secret unless webhook_secret.nil?
       body["auto"] = auto unless auto.nil?
-      @client.request("POST", "/dsar/executors", body: body)
+      @client.request("POST", "/dsar/executors#{dry_run ? '?dryRun=1' : ''}", body: body)
     end
 
     UNSET = Object.new.freeze
 
     # Change a connection in place. Only what you pass changes; the credential is kept unless
-    # +secret_key+ is given. +webhook_secret: nil+ removes the webhook secret.
-    def update_executor(id, profile: nil, base_url: nil, secret_key: nil, webhook_secret: UNSET, auto: nil)
+    # +secret_key+ is given. +webhook_secret: nil+ removes the webhook secret. +dry_run: true+
+    # (?dryRun=1) returns the would-be connection and a diff, and changes nothing.
+    def update_executor(id, profile: nil, base_url: nil, secret_key: nil, webhook_secret: UNSET, auto: nil, dry_run: false)
       body = { "profile" => profile, "baseUrl" => base_url, "secretKey" => secret_key, "auto" => auto }.reject { |_, v| v.nil? }
       body["webhookSecret"] = webhook_secret unless webhook_secret.equal?(UNSET)
-      @client.request("PATCH", "/dsar/executors/#{enc(id)}", body: body)
+      @client.request("PATCH", "/dsar/executors/#{enc(id)}#{dry_run ? '?dryRun=1' : ''}", body: body)
+    end
+
+    # Would this webhook delivery verify? Runs the receiver's exact check on +headers+ and the
+    # raw +body+ string (the bytes that were signed) and acts on nothing: {verified, stage, reason}.
+    def test_executor_webhook(id, headers:, body:)
+      @client.request("POST", "/dsar/executors/#{enc(id)}/webhook/test", body: { "headers" => headers, "body" => body })
+    end
+
+    # The last 50 deliveries to a connection's webhook, newest first, each with its reason.
+    def executor_webhook_deliveries(id)
+      @client.get("/dsar/executors/#{enc(id)}/webhook/deliveries")
     end
 
     def disconnect_executor(id)
