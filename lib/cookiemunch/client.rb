@@ -33,6 +33,9 @@ module CookieMunch
     # @return [String] the configured API origin (no trailing slash)
     attr_reader :base_url
 
+    # @return [Numeric] the per-request timeout, seconds (a long-poll stays under it)
+    attr_reader :timeout
+
     # @param api_key [String] the API key (e.g. "fck_…"). Sent both as
     #   +Authorization: Bearer <key>+ and, for compatibility, +X-API-Key+.
     # @param base_url [String] API origin; the `/v1` prefix is appended.

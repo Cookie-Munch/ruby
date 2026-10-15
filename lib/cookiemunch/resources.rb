@@ -16,6 +16,14 @@ module CookieMunch
       URI.encode_www_form_component(value.to_s).gsub("+", "%20")
     end
 
+    # A number for a query string: "30", not "30.0". nil stays nil.
+    def num(value)
+      return nil if value.nil?
+
+      f = value.to_f
+      f == f.to_i ? f.to_i.to_s : f.round(3).to_s
+    end
+
     # Build a "?a=1&b=2" query string, skipping nil values. Empty => "".
     def qs(params)
       pairs = params.reject { |_, v| v.nil? }
@@ -90,14 +98,38 @@ module CookieMunch
       @client.get("/sites/#{enc(cbid)}/cookies")
     end
 
-    # Kick off an async cookie crawl. @return [Hash] ScanStatus.
-    def scan(cbid)
-      @client.request("POST", "/sites/#{enc(cbid)}/scan")
+    # Start a cookie crawl: answers at once with "scanId" and "state" => "queued".
+    # wait: (seconds, at most 60) holds the request until it is done or failed.
+    # @return [Hash] ScanStatus.
+    def scan(cbid, wait: nil)
+      @client.request("POST", "/sites/#{enc(cbid)}/scan#{qs("wait" => num(wait))}")
     end
 
-    # Current cookie-scan status. @return [Hash] { "status", "lastScannedAt" }.
-    def scan_status(cbid)
-      @client.get("/sites/#{enc(cbid)}/scan")
+    # The last scan: "state" (queued, scanning, done, failed), "scanId", timings,
+    # "cookieCount", "pagesVisited", "error". wait: (seconds, at most 60) holds the
+    # request until a running scan settles. @return [Hash] ScanStatus.
+    def scan_status(cbid, wait: nil)
+      @client.get("/sites/#{enc(cbid)}/scan#{qs("wait" => num(wait))}")
+    end
+
+    # Return once the site's scan is done or failed (read "state" and "error"),
+    # long-polling the server; at timeout_ms it returns the still-running state. Each
+    # request asks the server to hold no longer than this client's own timeout.
+    # @return [Hash] ScanStatus.
+    def wait_for_scan(cbid, timeout_ms: 120_000)
+      clock = -> { Process.clock_gettime(Process::CLOCK_MONOTONIC) }
+      until_at = clock.call + (timeout_ms / 1000.0)
+      loop do
+        left = until_at - clock.call
+        asked = [[60.0, left, @client.timeout - 5].min, 0.0].max
+        started = clock.call
+        r = scan_status(cbid, wait: asked)
+        return r if r["status"] != "scanning" || until_at - clock.call <= 0
+
+        # A server that answered sooner than asked is not hammered.
+        early = [1.0, until_at - clock.call].min - (clock.call - started)
+        sleep(early) if early.positive?
+      end
     end
 
     # A/B experiment results. @return [Array<Hash>] each AbResult.
@@ -159,6 +191,27 @@ module CookieMunch
       body = { "cookies" => cookies }
       body["replace"] = true if replace
       @client.request("PUT", "/sites/#{enc(cbid)}/cookies#{qs("dryRun" => dry_run ? "1" : nil)}", body: body)
+    end
+
+    # Retire a cookie the site renamed or stopped setting: it leaves the banner's cookie
+    # list, data-cc="declaration" and the public feed, and stays listed for you with
+    # "retired". A name ending in * retires every cookie with that prefix. If a crawl or a
+    # visit sees it again afterwards it is listed again, flagged "retired_but_seen".
+    # dry_run: true stores nothing. @return [Hash] { "cookie", "matched" }.
+    def retire_cookie(cbid, name, renamed_to: nil, note: nil, dry_run: false)
+      body = {}
+      body["renamedTo"] = renamed_to unless renamed_to.nil?
+      body["note"] = note unless note.nil?
+      @client.request("POST", "/sites/#{enc(cbid)}/cookies/#{enc(name)}/retire#{qs("dryRun" => dry_run ? "1" : nil)}", body: body)
+    end
+
+    # Un-retire a cookie: it is listed again everywhere. With dry_run: true nothing is
+    # removed and the answer is the would-be list ("retired").
+    def unretire_cookie(cbid, name, dry_run: false)
+      return @client.request("DELETE", "/sites/#{enc(cbid)}/cookies/#{enc(name)}/retire?dryRun=1") if dry_run
+
+      @client.request("DELETE", "/sites/#{enc(cbid)}/cookies/#{enc(name)}/retire")
+      nil
     end
 
     # Remove a declaration; the scanned classification applies again. With dry_run: true

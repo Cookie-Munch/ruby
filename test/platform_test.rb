@@ -119,4 +119,36 @@ class PlatformTest < Minitest::Test
     ], t.calls.map { |x| "#{x.method} #{x.url}" }
     assert_equal({ "headers" => { "x-sig" => "v1,abc" }, "body" => '{"a":1}' }, body_of(t.calls[0]))
   end
+
+  def test_retire_and_unretire
+    t = FakeTransport.new
+    c = client(t)
+    c.sites.retire_cookie("cb", "old", renamed_to: "new", note: "v2")
+    c.sites.retire_cookie("cb", "atlas_*", dry_run: true)
+    out = c.sites.unretire_cookie("cb", "old", dry_run: true)
+    assert_equal ["POST", "https://api.example.com/v1/sites/cb/cookies/old/retire"], [t.calls[0].method, t.calls[0].url]
+    assert_equal({ "renamedTo" => "new", "note" => "v2" }, body_of(t.calls[0]))
+    assert_equal "https://api.example.com/v1/sites/cb/cookies/atlas_*/retire?dryRun=1", t.calls[1].url
+    assert_equal({}, body_of(t.calls[1]))
+    assert_equal ["DELETE", "https://api.example.com/v1/sites/cb/cookies/old/retire?dryRun=1"], [t.calls[2].method, t.calls[2].url]
+    assert_equal({}, out)
+    assert_nil client(FakeTransport.new(status: 204, body: "")).sites.unretire_cookie("cb", "old")
+  end
+
+  def test_scan_wait_and_wait_for_scan
+    t = FakeTransport.new
+    c = client(t)
+    c.sites.scan("cb", wait: 30)
+    c.sites.scan_status("cb", wait: 5)
+    assert_equal "https://api.example.com/v1/sites/cb/scan?wait=30", t.calls[0].url
+    assert_equal "https://api.example.com/v1/sites/cb/scan?wait=5", t.calls[1].url
+
+    t2 = FakeTransport.new(body: JSON.generate("status" => "idle", "state" => "done", "cookieCount" => 3))
+    t2.respond(status: 200, body: JSON.generate("status" => "scanning", "state" => "scanning"))
+    r = client(t2).sites.wait_for_scan("cb", timeout_ms: 120_000)
+    assert_equal "done", r["state"]
+    assert_equal 2, t2.calls.length
+    # The default client timeout is 30 s, so it never asks the server to hold longer than that.
+    assert_equal "https://api.example.com/v1/sites/cb/scan?wait=25", t2.calls[0].url
+  end
 end
