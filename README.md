@@ -92,8 +92,12 @@ Optional fields are forwarded when supplied: `ver:` (default 1), `stamp:`,
 
 Top-level: `me`, `usage`, `audit(limit: nil)`, `log_consent(...)`.
 
+Also top-level: `integration_health(cbid: nil)`, `provision(input, dry_run: false)` (one-call wiring; no secret returned).
+Keys: `keys.report(unused_days:, expiring_days:)`, `issue(expires_at:)`, `update(prefix, expires_at: nil)` removes an expiry. `Client.new(..., strict_unknown_fields: true)` refuses mistyped fields (`unknown_field`).
+
 ### `sites`
-`list`, `create(domain:, cbid: nil)`, `get(cbid)`, `delete(cbid)`,
+`list`, `create(domain:, cbid: nil)`, `get(cbid)`, `update(cbid, domain:, name:, aliases:, dry_run:)` (rename or move; cbid and ledger stay), `delete(cbid)`,
+`list_partners(cbid)`, `link_partner(cbid, partner:, external_id:, label:, events:, dry_run:)`, `unlink_partner(cbid, link_id)` (partner links, no secret),
 `get_config(cbid)`, `put_config(cbid, config)`, `patch_config(cbid, config)`,
 `lint_config(cbid, config, replace: false)` (consent-button parity, nothing saved), `cookies(cbid)`, `scan(cbid)`,
 `scan_status(cbid)`, `ab(cbid)`, `banner(cbid)`, `snippet(cbid, blocking_mode: nil, culture: nil)`,

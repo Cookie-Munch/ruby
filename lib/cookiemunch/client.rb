@@ -42,10 +42,13 @@ module CookieMunch
     # @param transport [#call, nil] optional injectable HTTP transport.
     # @param timeout [Numeric] per-request open/read timeout in seconds
     #   (applies to the default transport only).
-    def initialize(api_key:, base_url: DEFAULT_BASE_URL, transport: nil, timeout: 30)
+    # strict_unknown_fields: true sends "Prefer: strict-unknown-fields" on writes, so a body
+    # field the API does not declare is refused (400 unknown_field) instead of ignored.
+    def initialize(api_key:, base_url: DEFAULT_BASE_URL, transport: nil, timeout: 30, strict_unknown_fields: false)
       raise ArgumentError, "api_key is required" if api_key.nil? || api_key.to_s.empty?
 
       @api_key = api_key
+      @strict_unknown_fields = strict_unknown_fields
       @base_url = base_url.to_s.sub(%r{/+\z}, "")
       @timeout = timeout
       @transport = transport || method(:default_transport)
@@ -124,6 +127,19 @@ module CookieMunch
       get("/usage")
     end
 
+    # GET /v1/integration-health — one row per link the site's privacy wiring depends on, each
+    # with "ok" (nil = could not check) and a "fixHint". cbid may be omitted with one site.
+    def integration_health(cbid: nil)
+      query = cbid.nil? ? "" : "?#{URI.encode_www_form("cbid" => cbid)}"
+      get("/integration-health#{query}")
+    end
+
+    # POST /v1/provision — wire a product's privacy in one call. Idempotent; dry_run: true writes
+    # nothing anywhere. Secrets in +input+ are used for this request only; none is returned.
+    def provision(input, dry_run: false)
+      request("POST", "/provision#{dry_run ? "?dryRun=1" : ""}", body: input)
+    end
+
     # GET /v1/audit — the org's audit log, newest first. API actions appear as
     # "apikey:<prefix>". Requires an unscoped key that is not property-locked.
     # @return [Hash] { "entries" => [...] }.
@@ -196,6 +212,7 @@ module CookieMunch
     def request(http_method, path, body: nil, raw: false, prefix: "/v1", headers: nil)
       url = "#{@base_url}#{prefix}#{path}"
       hdrs = base_headers
+      hdrs["Prefer"] = "strict-unknown-fields" if @strict_unknown_fields && http_method.to_s.upcase != "GET"
       hdrs.merge!(stringify_headers(headers)) if headers
 
       encoded = nil

@@ -50,8 +50,40 @@ module CookieMunch
       @client.get("/sites/#{enc(cbid)}")
     end
 
+    UNSET_NAME = Object.new.freeze
+
+    # PATCH /v1/sites/{cbid} — rename or move a site. The cbid and the consent ledger stay; a
+    # domain move clears verification. name: nil clears the display name; aliases: [] clears them.
+    # dry_run: true answers with the diff and stores nothing.
+    def update(cbid, domain: nil, name: UNSET_NAME, aliases: nil, dry_run: false)
+      body = {}
+      body["domain"] = domain unless domain.nil?
+      body["name"] = name unless name.equal?(UNSET_NAME)
+      body["aliases"] = aliases unless aliases.nil?
+      @client.request("PATCH", "/sites/#{enc(cbid)}#{qs("dryRun" => dry_run ? "1" : nil)}", body: body)
+    end
+
     def delete(cbid)
       @client.request("DELETE", "/sites/#{enc(cbid)}")
+    end
+
+    # GET /v1/sites/{cbid}/partners — partner links and the partner catalogue.
+    def list_partners(cbid)
+      @client.get("/sites/#{enc(cbid)}/partners")
+    end
+
+    # POST /v1/sites/{cbid}/partners — grant a partner platform ("forumulate", "atlas") the
+    # site's consent events. No secret is created; idempotent.
+    def link_partner(cbid, partner:, external_id:, label: nil, events: nil, dry_run: false)
+      body = { "partner" => partner, "externalId" => external_id }
+      body["label"] = label unless label.nil?
+      body["events"] = events unless events.nil?
+      @client.request("POST", "/sites/#{enc(cbid)}/partners#{qs("dryRun" => dry_run ? "1" : nil)}", body: body)
+    end
+
+    # DELETE /v1/sites/{cbid}/partners/{link_id} — revoke; deliveries stop at once.
+    def unlink_partner(cbid, link_id)
+      @client.request("DELETE", "/sites/#{enc(cbid)}/partners/#{enc(link_id)}")
     end
 
     def get_config(cbid)
@@ -172,14 +204,16 @@ module CookieMunch
     # @return [Hash] { "cookie" => DeclaredCookie, "warnings" }.
     # purposes: the purpose in other languages ({ "es" => "…", "pt-BR" => "…" }); purpose is
     # the fallback. dry_run: true stores nothing and answers with "declared" and a "diff".
+    # type: "localStorage", "sessionStorage" or "indexedDB" declares browser storage instead of a cookie.
     def declare_cookie(cbid, name, category, purpose, provider: nil, expiry: nil, domain: nil, pattern: nil,
-                       purposes: nil, dry_run: false)
+                       purposes: nil, type: nil, dry_run: false)
       body = { "category" => category, "purpose" => purpose }
       body["provider"] = provider unless provider.nil?
       body["expiry"] = expiry unless expiry.nil?
       body["domain"] = domain unless domain.nil?
       body["pattern"] = pattern unless pattern.nil?
       body["purposes"] = purposes unless purposes.nil?
+      body["type"] = type unless type.nil?
       @client.request("PUT", "/sites/#{enc(cbid)}/cookies/#{enc(name)}#{qs("dryRun" => dry_run ? "1" : nil)}", body: body)
     end
 
@@ -212,6 +246,42 @@ module CookieMunch
 
       @client.request("DELETE", "/sites/#{enc(cbid)}/cookies/#{enc(name)}/retire")
       nil
+    end
+
+    # Every declaration preset (atlas, forumulate, chatly, cookiemunch): its parameters, what
+    # it has declared on this site, and whether the vendor's manifest exists yet.
+    # @return [Hash] { "presets" => [...] }.
+    def cookie_presets(cbid)
+      @client.request("GET", "/sites/#{enc(cbid)}/cookies/presets")
+    end
+
+    # Apply (or re-sync) a vendor preset: declares what that platform writes, marked
+    # "vendor". Atlas takes { "frontendApiHost", "crossSubdomainCookies" }; Chatly
+    # { "publicId", "dragging", "category" }. Names you declared are kept ("skipped").
+    def apply_cookie_preset(cbid, preset, params = {}, dry_run: false)
+      @client.request("PUT", "/sites/#{enc(cbid)}/cookies/presets/#{enc(preset)}#{qs("dryRun" => dry_run ? "1" : nil)}", body: params || {})
+    end
+
+    # Remove every declaration a vendor preset made.
+    def remove_cookie_preset(cbid, preset, dry_run: false)
+      @client.request("DELETE", "/sites/#{enc(cbid)}/cookies/presets/#{enc(preset)}#{qs("dryRun" => dry_run ? "1" : nil)}")
+    end
+
+    # Remove every stored (scanned or observed) row of this name; a declaration stays. With
+    # dry_run: true nothing is removed and the answer says what would be.
+    def delete_observed_cookie(cbid, name, dry_run: false)
+      return @client.request("DELETE", "/sites/#{enc(cbid)}/observed-cookies/#{enc(name)}?dryRun=1") if dry_run
+
+      @client.request("DELETE", "/sites/#{enc(cbid)}/observed-cookies/#{enc(name)}")
+      nil
+    end
+
+    # Purge observed since T: remove every row a real visit first reported at or after
+    # since (and before until) — ISO-8601 or epoch ms. Crawled rows and declarations stay.
+    def purge_observed_cookies(cbid, since, until_time: nil, dry_run: false)
+      body = { "since" => since }
+      body["until"] = until_time unless until_time.nil?
+      @client.request("POST", "/sites/#{enc(cbid)}/observed-cookies/purge#{qs("dryRun" => dry_run ? "1" : nil)}", body: body)
     end
 
     # Remove a declaration; the scanned classification applies again. With dry_run: true
@@ -354,10 +424,12 @@ module CookieMunch
     # @param type [String] access | deletion | rectification | portability | opt-out.
     # @param regulation [String] "gdpr" | "ccpa".
     # +test: true+ files a test request: off the SLA board, labelled, and deletable.
-    def create(type:, subject_email:, regulation:, note: nil, test: nil)
+    # +note+ is internal; +message_to_subject+ is the line the subject reads in the notice.
+    def create(type:, subject_email:, regulation:, note: nil, test: nil, message_to_subject: nil)
       body = { "type" => type, "subjectEmail" => subject_email, "regulation" => regulation }
       body["note"] = note unless note.nil?
       body["test"] = test unless test.nil?
+      body["messageToSubject"] = message_to_subject unless message_to_subject.nil?
       @client.request("POST", "/dsar", body: body)
     end
 
@@ -380,8 +452,11 @@ module CookieMunch
     end
 
     # @param to_status [String] received | verifying | in_progress | completed | rejected.
-    def advance(id, to_status)
-      @client.request("POST", "/dsar/#{enc(id)}/advance", body: { "toStatus" => to_status })
+    # +message_to_subject+ replaces the line the subject reads in the notice.
+    def advance(id, to_status, message_to_subject: nil)
+      body = { "toStatus" => to_status }
+      body["messageToSubject"] = message_to_subject unless message_to_subject.nil?
+      @client.request("POST", "/dsar/#{enc(id)}/advance", body: body)
     end
 
     # The subject-facing response notice for a request, as plain text.
@@ -572,8 +647,9 @@ module CookieMunch
     # to the whole org. A key locked with +cbids+ works only on those sites and on no
     # org-wide endpoint.
     # @return [Hash] { "key", "prefix" }.
-    def issue(name: nil, scopes: nil, cbids: nil, expires_in_days: nil)
-      body = { "name" => name, "scopes" => scopes, "cbids" => cbids, "expiresInDays" => expires_in_days }
+    # expires_at: epoch ms or an ISO date-time (not with expires_in_days); omit both for no expiry.
+    def issue(name: nil, scopes: nil, cbids: nil, expires_in_days: nil, expires_at: nil)
+      body = { "name" => name, "scopes" => scopes, "cbids" => cbids, "expiresInDays" => expires_in_days, "expiresAt" => expires_at }
       @client.request("POST", "/keys", body: body.reject { |_, v| v.nil? })
     end
 
@@ -589,10 +665,20 @@ module CookieMunch
       @client.request("POST", "/keys/#{enc(prefix)}/roll")
     end
 
-    # Rename a key, or replace its scopes or property lock. Only the fields sent change.
-    def update(prefix, name: nil, scopes: nil, cbids: nil)
+    UNSET_EXPIRY = Object.new.freeze
+
+    # Rename a key, replace its scopes or property lock, or set (epoch ms / ISO) or remove
+    # (expires_at: nil) its expiry. Only the fields sent change.
+    def update(prefix, name: nil, scopes: nil, cbids: nil, expires_at: UNSET_EXPIRY)
       body = { "name" => name, "scopes" => scopes, "cbids" => cbids }.reject { |_, v| v.nil? }
+      body["expiresAt"] = expires_at unless expires_at.equal?(UNSET_EXPIRY)
       @client.request("PATCH", "/keys/#{enc(prefix)}", body: body)
+    end
+
+    # GET /v1/keys/report — keys unused for unused_days (default 90), keys with broad access,
+    # and keys expiring within expiring_days (default 14), each with a reason.
+    def report(unused_days: nil, expiring_days: nil)
+      @client.get("/keys/report#{qs("unusedDays" => unused_days, "expiringDays" => expiring_days)}")
     end
   end
 
@@ -930,6 +1016,34 @@ module CookieMunch
       @client.request("POST", "/dsar/executors#{dry_run ? '?dryRun=1' : ''}", body: body)
     end
 
+    # Connect a system from a versioned preset: "atlas" (optional +atlas_id_app_id+),
+    # "forumulate" (+org_id+), "cm-standard-v1" (+base_url+ and +system+) or "chatly". The
+    # response carries presetVersion and presetDiff. A preset waiting on another platform's
+    # API is refused (409 preset_waiting_on_platform); see +executor_presets+.
+    def connect_executor_preset(preset:, secret_key:, system: nil, base_url: nil, org_id: nil, atlas_id_app_id: nil,
+                                preset_version: nil, webhook_secret: nil, auto: nil, cbid: nil, dry_run: false)
+      body = {
+        "preset" => preset, "secretKey" => secret_key, "system" => system, "baseUrl" => base_url, "orgId" => org_id,
+        "atlasIdAppId" => atlas_id_app_id, "presetVersion" => preset_version, "webhookSecret" => webhook_secret,
+        "auto" => auto, "cbid" => cbid
+      }.reject { |_, v| v.nil? }
+      @client.request("POST", "/dsar/executors#{dry_run ? '?dryRun=1' : ''}", body: body)
+    end
+
+    # The versioned presets, whether each is usable now or waits on another platform, and
+    # the organisation's canary address.
+    def executor_presets
+      @client.get("/dsar/executors/presets")
+    end
+
+    # Rebuild a connection from its preset's latest version (or +preset_version+), keeping its
+    # id and credential; +preset:+ adopts one on a hand-written connection. Answers with a
+    # diff; +dry_run: true+ (?dryRun=1) changes nothing.
+    def upgrade_executor_preset(id, preset: nil, preset_version: nil, org_id: nil, atlas_id_app_id: nil, dry_run: false)
+      body = { "preset" => preset, "presetVersion" => preset_version, "orgId" => org_id, "atlasIdAppId" => atlas_id_app_id }.reject { |_, v| v.nil? }
+      @client.request("POST", "/dsar/executors/#{enc(id)}/upgrade-preset#{dry_run ? '?dryRun=1' : ''}", body: body)
+    end
+
     UNSET = Object.new.freeze
 
     # Change a connection in place. Only what you pass changes; the credential is kept unless
@@ -959,9 +1073,10 @@ module CookieMunch
 
     # Try a connection against one email without filing a request: runs the lookup and
     # returns the raw (redacted) upstream answers. +open: true+ on an export opens and polls a
-    # real export once; an erasure is never sent.
-    def test_executor(id, email:, operation: nil, open: nil)
-      body = { "email" => email, "operation" => operation, "open" => open }.reject { |_, v| v.nil? }
+    # real export once; an erasure is never sent. +canary: true+ (instead of +email+) uses the
+    # org canary address — no real person — and a canary locate updates the connection's health.
+    def test_executor(id, email: nil, operation: nil, open: nil, canary: nil)
+      body = { "email" => email, "canary" => canary, "operation" => operation, "open" => open }.reject { |_, v| v.nil? }
       @client.request("POST", "/dsar/executors/#{enc(id)}/test", body: body)
     end
 

@@ -102,6 +102,24 @@ class PlatformTest < Minitest::Test
     assert_equal "#{base}/s/rights-page/domains/privacy.acme.com", t.calls[3].url
   end
 
+  def test_executor_presets_canary_and_upgrade
+    t = FakeTransport.new
+    c = client(t)
+    c.fulfillment.executor_presets
+    c.fulfillment.connect_executor_preset(preset: "forumulate", secret_key: "fck_12345678", org_id: "org-1")
+    c.fulfillment.test_executor("ex 1", canary: true)
+    c.fulfillment.upgrade_executor_preset("ex 1", atlas_id_app_id: "app_1", dry_run: true)
+    assert_equal [
+      ["GET", "https://api.example.com/v1/dsar/executors/presets"],
+      ["POST", "https://api.example.com/v1/dsar/executors"],
+      ["POST", "https://api.example.com/v1/dsar/executors/ex%201/test"],
+      ["POST", "https://api.example.com/v1/dsar/executors/ex%201/upgrade-preset?dryRun=1"]
+    ], t.calls.map { |x| [x.method, x.url] }
+    assert_equal({ "preset" => "forumulate", "secretKey" => "fck_12345678", "orgId" => "org-1" }, body_of(t.calls[1]))
+    assert_equal({ "canary" => true }, body_of(t.calls[2]))
+    assert_equal({ "atlasIdAppId" => "app_1" }, body_of(t.calls[3]))
+  end
+
   def test_executor_webhook_check_deliveries_and_dry_runs
     t = FakeTransport.new
     c = client(t)
