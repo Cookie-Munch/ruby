@@ -42,12 +42,15 @@ module CookieMunch
     # @param transport [#call, nil] optional injectable HTTP transport.
     # @param timeout [Numeric] per-request open/read timeout in seconds
     #   (applies to the default transport only).
+    # user_agent: the User-Agent sent on every request (default cookiemunch-ruby/<version>).
+    # user_agent: the User-Agent sent on every request (default cookiemunch-ruby/<version>).
     # strict_unknown_fields: true sends "Prefer: strict-unknown-fields" on writes, so a body
     # field the API does not declare is refused (400 unknown_field) instead of ignored.
-    def initialize(api_key:, base_url: DEFAULT_BASE_URL, transport: nil, timeout: 30, strict_unknown_fields: false)
+    def initialize(api_key:, base_url: DEFAULT_BASE_URL, transport: nil, timeout: 30, strict_unknown_fields: false, user_agent: nil)
       raise ArgumentError, "api_key is required" if api_key.nil? || api_key.to_s.empty?
 
       @api_key = api_key
+      @user_agent = user_agent || "cookiemunch-ruby/#{CookieMunch::VERSION}"
       @strict_unknown_fields = strict_unknown_fields
       @base_url = base_url.to_s.sub(%r{/+\z}, "")
       @timeout = timeout
@@ -252,7 +255,7 @@ module CookieMunch
         "Authorization" => "Bearer #{@api_key}",
         "X-API-Key" => @api_key.to_s,
         "Accept" => "application/json",
-        "User-Agent" => "cookiemunch-ruby/#{CookieMunch::VERSION}"
+        "User-Agent" => @user_agent
       }
     end
 

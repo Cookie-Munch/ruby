@@ -73,7 +73,14 @@ class ClientTest < Minitest::Test
 
     assert_equal "Bearer fck_secret", t.last.headers["Authorization"]
     assert_equal "fck_secret", t.last.headers["X-API-Key"]
-    assert_includes t.last.headers["User-Agent"], "cookiemunch-ruby/"
+    assert_equal "cookiemunch-ruby/#{CookieMunch::VERSION}", t.last.headers["User-Agent"]
+  end
+
+  def test_user_agent_can_be_overridden
+    t = FakeTransport.new(body: JSON.generate({}))
+    CookieMunch::Client.new(api_key: "fck_secret", transport: t, user_agent: "acme/2").me
+
+    assert_equal "acme/2", t.last.headers["User-Agent"]
   end
 
   # --- POST body encoding + JSON content type ------------------------------

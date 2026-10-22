@@ -248,7 +248,7 @@ module CookieMunch
       nil
     end
 
-    # Every declaration preset (atlas, forumulate, chatly, cookiemunch): its parameters, what
+    # Every declaration preset (atlas, forumulate, chatly, cookiemunch, referally): its parameters, what
     # it has declared on this site, and whether the vendor's manifest exists yet.
     # @return [Hash] { "presets" => [...] }.
     def cookie_presets(cbid)
@@ -257,7 +257,7 @@ module CookieMunch
 
     # Apply (or re-sync) a vendor preset: declares what that platform writes, marked
     # "vendor". Atlas takes { "frontendApiHost", "crossSubdomainCookies" }; Chatly
-    # { "publicId", "dragging", "category" }. Names you declared are kept ("skipped").
+    # { "publicId", "dragging", "category" }; Referally { "cookieDomain", "cookieDays", "category" }. Names you declared are kept ("skipped").
     def apply_cookie_preset(cbid, preset, params = {}, dry_run: false)
       @client.request("PUT", "/sites/#{enc(cbid)}/cookies/presets/#{enc(preset)}#{qs("dryRun" => dry_run ? "1" : nil)}", body: params || {})
     end
