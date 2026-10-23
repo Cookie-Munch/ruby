@@ -499,6 +499,23 @@ class NetHttpTransportTest < Minitest::Test
   end
 end
 
+class OrgControllerTest < Minitest::Test
+  def test_get_set_remove
+    t = FakeTransport.new(body: JSON.generate({}))
+    cm = CookieMunch::Client.new(api_key: "fck_secret", transport: t)
+
+    cm.org.controller
+    assert_equal ["GET", "https://api.cookiemunch.net/v1/org/controller"], [t.last.method, t.last.url]
+
+    cm.org.set_controller(legal_name: "Crossly Ltd", contact_email: "p@crossly.example")
+    assert_equal ["PUT", "https://api.cookiemunch.net/v1/org/controller"], [t.last.method, t.last.url]
+    assert_equal({ "legalName" => "Crossly Ltd", "contactEmail" => "p@crossly.example" }, JSON.parse(t.last.body))
+
+    cm.org.remove_controller
+    assert_equal ["DELETE", "https://api.cookiemunch.net/v1/org/controller"], [t.last.method, t.last.url]
+  end
+end
+
 class OrgMailProviderTest < Minitest::Test
   def test_get_set_test_remove
     t = FakeTransport.new(body: JSON.generate({}))
@@ -572,6 +589,32 @@ class RightsIdentitySdkTest < Minitest::Test
     assert_equal({ "type" => "oidc_jwt", "issuer" => "https://id.acme.example", "jwksUrl" => "https://id.acme.example/keys", "audience" => "acme-rights", "sessionCookieName" => "sid" }, JSON.parse(t.last.body))
     cm.org.remove_rights_identity
     assert_equal ["DELETE", "https://api.cookiemunch.net/v1/org/rights-identity"], [t.last.method, t.last.url]
+  end
+end
+
+class ConsentSyncSecretSdkTest < Minitest::Test
+  def test_get_rotate_remove
+    t = FakeTransport.new(body: JSON.generate({}))
+    cm = CookieMunch::Client.new(api_key: "fck_secret", transport: t)
+    cm.consent_sync_secret.get("s 1")
+    assert_equal ["GET", "https://api.cookiemunch.net/v1/sites/s%201/consent-sync-secret"], [t.last.method, t.last.url]
+    cm.consent_sync_secret.rotate("s1")
+    assert_equal ["POST", "https://api.cookiemunch.net/v1/sites/s1/consent-sync-secret"], [t.last.method, t.last.url]
+    cm.consent_sync_secret.remove("s1")
+    assert_equal ["DELETE", "https://api.cookiemunch.net/v1/sites/s1/consent-sync-secret"], [t.last.method, t.last.url]
+  end
+end
+
+class PreferenceCenterSdkTest < Minitest::Test
+  def test_mint_token_sends_only_what_is_given
+    t = FakeTransport.new(body: JSON.generate({ "token" => "t", "expiresAt" => "2026-01-01T00:00:00.000Z" }))
+    cm = CookieMunch::Client.new(api_key: "fck_secret", transport: t)
+    out = cm.preference_center.mint_token("cb1", email: "a@x.com")
+    assert_equal "t", out["token"]
+    assert_equal ["POST", "https://api.cookiemunch.net/v1/preference-center/tokens"], [t.last.method, t.last.url]
+    assert_equal({ "cbid" => "cb1", "email" => "a@x.com" }, JSON.parse(t.last.body))
+    cm.preference_center.mint_token("cb1", subject_id: "u1", ttl_seconds: 60)
+    assert_equal({ "cbid" => "cb1", "subjectId" => "u1", "ttlSeconds" => 60 }, JSON.parse(t.last.body))
   end
 end
 

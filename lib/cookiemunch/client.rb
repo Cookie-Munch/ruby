@@ -64,6 +64,7 @@ module CookieMunch
       @brand_kits = BrandKits.new(self)
       @rights_page = RightsPage.new(self)
       @preferences = Preferences.new(self)
+      @preference_center = PreferenceCenter.new(self)
       @members = Members.new(self)
       @keys = Keys.new(self)
       @webhooks = Webhooks.new(self)
@@ -81,6 +82,7 @@ module CookieMunch
       @subjects = Subjects.new(self)
       @rights_links = RightsLinks.new(self)
       @rights_captcha = RightsCaptcha.new(self)
+      @consent_sync_secret = ConsentSyncSecret.new(self)
       @rights_identity = RightsIdentity.new(self)
       @org = Org.new(self)
       @assets = Assets.new(self)
@@ -91,7 +93,8 @@ module CookieMunch
                 :preferences, :members, :keys, :webhooks, :banners,
                 :identity, :vault, :profile, :subscriptions, :assessments,
                 :discovery, :ai, :fulfillment, :regulatory, :reseller, :subjects,
-                :org, :assets, :rights_links, :rights_captcha, :rights_identity
+                :org, :assets, :rights_links, :rights_captcha, :rights_identity,
+                :consent_sync_secret, :preference_center
 
     # GET /v1/me — identity / echo for SDK bootstrapping.
     # @return [Hash] { "orgId", "plan", "keyPrefix" }

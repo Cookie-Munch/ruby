@@ -614,6 +614,23 @@ module CookieMunch
     end
   end
 
+  # /v1/preference-center/tokens — the hosted preference centre, opened for a visitor your server
+  # has signed in.
+  class PreferenceCenter < Resource
+    # Mint a preference-centre token for the page to pass to CookieMunch.setSubjectToken. Give
+    # exactly one of +email+ (resolved as the emailed preference link resolves it) or +subject_id+.
+    # +ttl_seconds+ defaults to 3600, at most 86400. The token is a credential: never put it in a
+    # shared URL or a log. Needs subscriptions:write and profile:write, plus identity:read by email.
+    # @return [Hash] { "token", "expiresAt" }
+    def mint_token(cbid, email: nil, subject_id: nil, ttl_seconds: nil)
+      body = { "cbid" => cbid }
+      body["email"] = email unless email.nil?
+      body["subjectId"] = subject_id unless subject_id.nil?
+      body["ttlSeconds"] = ttl_seconds unless ttl_seconds.nil?
+      @client.request("POST", "/preference-center/tokens", body: body)
+    end
+  end
+
   # /v1/members/* — org membership.
   class Members < Resource
     def list
@@ -1130,6 +1147,28 @@ module CookieMunch
     end
   end
 
+  # /v1/sites/{cbid}/consent-sync-secret — a site's consent-sync signing secret. Your server signs
+  # consent-sync tokens with it so a signed-in visitor's consent decision follows them across
+  # browsers (hosted consent sync). Reading needs sites:read; rotate and remove need sites:write
+  # and consent:write.
+  class ConsentSyncSecret < Resource
+    # Whether it is set up: configured, secretLast4, createdAt. Never the secret.
+    def get(cbid)
+      @client.get("/sites/#{enc(cbid)}/consent-sync-secret")
+    end
+
+    # Mint the secret, or replace it (the old one stops at once). The answer's "secret" is shown
+    # this once: keep it on your server, never in a page.
+    def rotate(cbid)
+      @client.request("POST", "/sites/#{enc(cbid)}/consent-sync-secret")
+    end
+
+    # Remove it: hosted consent sync stops for the site.
+    def remove(cbid)
+      @client.request("DELETE", "/sites/#{enc(cbid)}/consent-sync-secret")
+    end
+  end
+
   # /v1/sites/{cbid}/rights-captcha — a site's rights-page captcha: your own Turnstile, hCaptcha or
   # reCAPTCHA keys (recommended), or off. A site without its own setting uses the organisation
   # default (+org.rights_captcha+), else off. Cookie Munch's own captcha is never used on rights
@@ -1215,6 +1254,28 @@ module CookieMunch
       body = { "name" => name }.reject { |_, v| v.nil? }
       body["logoUrl"] = logo_url unless logo_url.equal?(UNSET)
       @client.request("PATCH", "/org", body: body)
+    end
+
+    # Your organisation's own data-controller identity: who every rights notice names, before
+    # any site config +controller+ block. +{ "set" => false }+ when there is none.
+    def controller
+      @client.get("/org/controller")
+    end
+
+    # Set the organisation's data-controller identity. Replaces it: a field left out is
+    # removed. Needs an unscoped key or +rights:write+.
+    def set_controller(legal_name:, contact_email: nil, address: nil, dpo_contact: nil)
+      body = {
+        "legalName" => legal_name, "contactEmail" => contact_email,
+        "address" => address, "dpoContact" => dpo_contact
+      }.reject { |_, v| v.nil? }
+      @client.request("PUT", "/org/controller", body: body)
+    end
+
+    # Remove the identity; notices then name the site config +controller+ block.
+    def remove_controller
+      @client.request("DELETE", "/org/controller")
+      nil
     end
 
     # Your own mail provider for rights-request mail. Never returns the credential, only
