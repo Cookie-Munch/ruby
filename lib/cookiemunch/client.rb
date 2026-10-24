@@ -71,6 +71,7 @@ module CookieMunch
       @preference_center = PreferenceCenter.new(self)
       @members = Members.new(self)
       @keys = Keys.new(self)
+      @sandbox = Sandbox.new(self)
       @webhooks = Webhooks.new(self)
       @banners = Banners.new(self)
       @identity = Identity.new(self)
@@ -97,6 +98,7 @@ module CookieMunch
     end
 
     # Resource groups mirroring the reference TypeScript SDK surface.
+    attr_reader :sandbox
     attr_reader :sites, :consent, :dsar, :vendors, :ropa, :brand_kits, :rights_page,
                 :preferences, :members, :keys, :webhooks, :banners,
                 :identity, :vault, :profile, :subscriptions, :assessments,
@@ -165,6 +167,12 @@ module CookieMunch
     # where metered. Any key may read it.
     def entitlements
       get("/entitlements")
+    end
+
+    # GET /v1/versions — the dated API versions, what each changed, and the one this key is pinned
+    # to ("yours"). Re-pin with keys.update_self(api_version).
+    def versions
+      get("/versions")
     end
 
     # GET /v1/integration-health — one row per link the site's privacy wiring depends on, each

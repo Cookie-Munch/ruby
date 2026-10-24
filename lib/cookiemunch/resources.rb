@@ -743,6 +743,28 @@ module CookieMunch
     end
   end
 
+  # /v1/sandbox — the organisation's sandbox: a separate test organisation with the same people and
+  # plan features, never billed. Its keys are test keys and its rights requests are all tests.
+  # +create+ and +delete+ need a full-access key or +orgs:create+.
+  class Sandbox < Resource
+    # GET /v1/sandbox — the sandbox, or nil. From a sandbox key, the sandbox itself.
+    def get
+      (@client.get("/sandbox") || {})["sandbox"]
+    end
+
+    # POST /v1/sandbox — make the sandbox (or reuse it, "created" => false) and a new test key for
+    # it, shown once.
+    def create(key_name: nil)
+      @client.request("POST", "/sandbox", body: key_name.nil? ? {} : { "keyName" => key_name })
+    end
+
+    # DELETE /v1/sandbox — erase the sandbox and everything in it. Cannot be undone; the live
+    # organisation is not touched.
+    def delete
+      @client.request("DELETE", "/sandbox")
+    end
+  end
+
   # /v1/keys — API-key prefixes + issuing new keys.
   class Keys < Resource
     # @return [Array<Hash>] key prefixes (display metadata; never the secret).
@@ -801,6 +823,11 @@ module CookieMunch
       @client.get("/keys/self")
     end
 
+    # PATCH /v1/keys/self — re-pin the calling key to another dated API version (any key, for itself).
+    def update_self(api_version)
+      @client.request("PATCH", "/keys/self", body: { "apiVersion" => api_version })
+    end
+
     # POST /v1/keys/self/roll — the calling key rotates itself; the old secret stops at once.
     # Build the client with headers: { "Idempotency-Key" => ... } so a lost answer replays.
     def roll_self
@@ -812,6 +839,16 @@ module CookieMunch
     def vend(scopes, ttl_seconds, cbids: nil, name: nil)
       body = { "scopes" => scopes, "ttlSeconds" => ttl_seconds, "cbids" => cbids, "name" => name }.reject { |_, v| v.nil? }
       @client.request("POST", "/keys/vend", body: body)
+    end
+
+    # POST /v1/oauth/token (RFC 8693) — swap your identity provider's token for a short-lived, scoped key.
+    # Needs no API key: the route never reads one, so a client made with any placeholder key works.
+    # resource is "org:<id>" or "site:<cbid>"; the key lives at most an hour.
+    def exchange_operator_token(subject_token, scope, resource, subject_token_type: "access_token", expires_in: nil)
+      body = { "grant_type" => "urn:ietf:params:oauth:grant-type:token-exchange", "subject_token" => subject_token,
+               "subject_token_type" => "urn:ietf:params:oauth:token-type:#{subject_token_type}", "scope" => Array(scope).join(" "),
+               "resource" => resource, "audience" => "cookiemunch", "expires_in" => expires_in }.reject { |_, v| v.nil? }
+      @client.request("POST", "/oauth/token", body: body)
     end
 
     # POST /v1/keys/revoke_leaked — revoke a published secret. Needs no valid key; always answers
