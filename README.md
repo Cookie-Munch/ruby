@@ -90,7 +90,7 @@ Optional fields are forwarded when supplied: `ver:` (default 1), `stamp:`,
 
 ## Method surface
 
-Top-level: `me`, `usage`, `audit(limit: nil)`, `log_consent(...)`.
+Top-level: `me`, `usage`, `entitlements`, `audit(limit: nil)`, `log_consent(...)`.
 
 Also top-level: `integration_health(cbid: nil)`, `provision(input, dry_run: false)` (one-call wiring; no secret returned).
 Keys: `keys.report(unused_days:, expiring_days:)`, `issue(expires_at:)`, `update(prefix, expires_at: nil)` removes an expiry. `Client.new(..., strict_unknown_fields: true)` refuses mistyped fields (`unknown_field`).
@@ -103,7 +103,7 @@ Keys: `keys.report(unused_days:, expiring_days:)`, `issue(expires_at:)`, `update
 `scan_status(cbid)`, `ab(cbid)`, `banner(cbid)`, `snippet(cbid, blocking_mode: nil, culture: nil)`,
 `policy(cbid, contact_email:, effective_date:, jurisdictions:)` (Markdown `String`),
 `set_ad_personalization(cbid, enabled:, default:, label:)`, `analyze_session(cbid, har:, requests:, consent:, gpc:)`,
-`verify(cbid, method)`, `brand(cbid)`, `get_flow(cbid)`,
+`verify(cbid, method)`, `brand(cbid)`, `get_brand(cbid)`, `set_brand(cbid, input, dry_run: false)`, `get_flow(cbid)`,
 `edit_flow(cbid, operations)`, `set_flow(cbid, config)`.
 
 ### `consent`

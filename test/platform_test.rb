@@ -109,11 +109,13 @@ class PlatformTest < Minitest::Test
     c.fulfillment.connect_executor_preset(preset: "forumulate", secret_key: "fck_12345678", org_id: "org-1")
     c.fulfillment.test_executor("ex 1", canary: true)
     c.fulfillment.upgrade_executor_preset("ex 1", atlas_id_app_id: "app_1", dry_run: true)
+    c.fulfillment.executor("ex 1")
     assert_equal [
       ["GET", "https://api.example.com/v1/dsar/executors/presets"],
       ["POST", "https://api.example.com/v1/dsar/executors"],
       ["POST", "https://api.example.com/v1/dsar/executors/ex%201/test"],
-      ["POST", "https://api.example.com/v1/dsar/executors/ex%201/upgrade-preset?dryRun=1"]
+      ["POST", "https://api.example.com/v1/dsar/executors/ex%201/upgrade-preset?dryRun=1"],
+      ["GET", "https://api.example.com/v1/dsar/executors/ex%201"]
     ], t.calls.map { |x| [x.method, x.url] }
     assert_equal({ "preset" => "forumulate", "secretKey" => "fck_12345678", "orgId" => "org-1" }, body_of(t.calls[1]))
     assert_equal({ "canary" => true }, body_of(t.calls[2]))

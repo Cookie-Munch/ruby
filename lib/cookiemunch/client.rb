@@ -46,12 +46,16 @@ module CookieMunch
     # user_agent: the User-Agent sent on every request (default cookiemunch-ruby/<version>).
     # strict_unknown_fields: true sends "Prefer: strict-unknown-fields" on writes, so a body
     # field the API does not declare is refused (400 unknown_field) instead of ignored.
-    def initialize(api_key:, base_url: DEFAULT_BASE_URL, transport: nil, timeout: 30, strict_unknown_fields: false, user_agent: nil)
+    # secret_recipient: "x25519:<base64 public key>" seals every once-shown secret (sealed_secret).
+    # headers: extra headers on every request, e.g. { "Idempotency-Key" => "<ref>:<run>" } for one create.
+    def initialize(api_key:, base_url: DEFAULT_BASE_URL, transport: nil, timeout: 30, strict_unknown_fields: false, user_agent: nil, secret_recipient: nil, headers: nil)
       raise ArgumentError, "api_key is required" if api_key.nil? || api_key.to_s.empty?
 
       @api_key = api_key
       @user_agent = user_agent || "cookiemunch-ruby/#{CookieMunch::VERSION}"
       @strict_unknown_fields = strict_unknown_fields
+      @secret_recipient = secret_recipient
+      @extra_headers = headers || {}
       @base_url = base_url.to_s.sub(%r{/+\z}, "")
       @timeout = timeout
       @transport = transport || method(:default_transport)
@@ -84,8 +88,12 @@ module CookieMunch
       @rights_captcha = RightsCaptcha.new(self)
       @consent_sync_secret = ConsentSyncSecret.new(self)
       @rights_identity = RightsIdentity.new(self)
+      @dsar_settings = DsarSettings.new(self)
+      @integrations = Integrations.new(self)
       @org = Org.new(self)
       @assets = Assets.new(self)
+      @metadata = Metadata.new(self)
+      @partner_links = PartnerLinks.new(self)
     end
 
     # Resource groups mirroring the reference TypeScript SDK surface.
@@ -94,7 +102,7 @@ module CookieMunch
                 :identity, :vault, :profile, :subscriptions, :assessments,
                 :discovery, :ai, :fulfillment, :regulatory, :reseller, :subjects,
                 :org, :assets, :rights_links, :rights_captcha, :rights_identity,
-                :consent_sync_secret, :preference_center
+                :consent_sync_secret, :preference_center, :dsar_settings, :integrations, :metadata, :partner_links
 
     # GET /v1/me — identity / echo for SDK bootstrapping.
     # @return [Hash] { "orgId", "plan", "keyPrefix" }
@@ -107,8 +115,8 @@ module CookieMunch
     # another org on the account pays for) and subscribedPlan, plus orgLimit and upgradeUrl.
     # Needs an unscoped key that is not locked to properties.
     # @return [Hash] { "orgs" => [...], "orgLimit" => { "max", "plan", "used" }, "upgradeUrl" }
-    def list_orgs
-      get("/orgs")
+    def list_orgs(metadata: nil)
+      get("/orgs#{meta_qs(metadata)}")
     end
 
     # POST /v1/orgs — create a sibling organisation owned by the same account, for
@@ -116,8 +124,27 @@ module CookieMunch
     # the account's plan org allowance (403 org_limit names the plan). Not reseller
     # provisioning, which is for organisations you run on behalf of YOUR customers.
     # @return [Hash] { "org" => { "id", "name", "role" } }
-    def create_org(name)
-      request("POST", "/orgs", body: { name: name })
+    def create_org(name, mint_key: false, key_scopes: nil, key_expires_in_days: nil, key_owner: nil, external_ref: nil, metadata: nil)
+      body = { "name" => name }
+      body["mintKey"] = true if mint_key
+      body["keyScopes"] = key_scopes unless key_scopes.nil?
+      body["keyExpiresInDays"] = key_expires_in_days unless key_expires_in_days.nil?
+      body["keyOwner"] = key_owner unless key_owner.nil?
+      body["externalRef"] = external_ref unless external_ref.nil?
+      body["metadata"] = metadata unless metadata.nil?
+      request("POST", "/orgs", body: body)
+    end
+
+    # DELETE /v1/orgs/{id}?hard=1 — remove a SANDBOX organisation of this account (created with
+    # metadata.forgedeck_sandbox). Anything else is 403 not_a_sandbox.
+    def delete_sandbox_org(id)
+      request("DELETE", "/orgs/#{URI.encode_www_form_component(id.to_s)}?hard=1")
+    end
+
+    # GET /v1/provision/env — what forgedeck env writes for the product provisioned with this ref:
+    # names, non-secret values, and references for secrets.
+    def provision_env(ref)
+      get("/provision/env?#{URI.encode_www_form("ref" => ref)}")
     end
 
     # GET /v1/languages — the languages the banner already has copy for. Diff it
@@ -133,6 +160,13 @@ module CookieMunch
       get("/usage")
     end
 
+    # GET /v1/entitlements — what the org may use, from its plan: every feature as
+    # { key, enabled } and every limit as limits.<name> with limit (nil = unlimited) and used
+    # where metered. Any key may read it.
+    def entitlements
+      get("/entitlements")
+    end
+
     # GET /v1/integration-health — one row per link the site's privacy wiring depends on, each
     # with "ok" (nil = could not check) and a "fixHint". cbid may be omitted with one site.
     def integration_health(cbid: nil)
@@ -140,18 +174,63 @@ module CookieMunch
       get("/integration-health#{query}")
     end
 
+    # GET /v1/embed?cbid= — the site's embed manifest (the tenant variant of
+    # /.well-known/forgedeck-embed.json): every origin by CSP directive and every browser key the
+    # embed writes for this site's config. Public: no key is needed, but sending one is harmless.
+    def embed_manifest(cbid)
+      get("/embed?#{URI.encode_www_form("cbid" => cbid)}")
+    end
+
     # POST /v1/provision — wire a product's privacy in one call. Idempotent; dry_run: true writes
     # nothing anywhere. Secrets in +input+ are used for this request only; none is returned.
-    def provision(input, dry_run: false)
-      request("POST", "/provision#{dry_run ? "?dryRun=1" : ""}", body: input)
+    def provision(input, dry_run: false, from_step: nil)
+      q = {}
+      q["dryRun"] = "1" if dry_run
+      q["fromStep"] = from_step unless from_step.nil?
+      request("POST", "/provision#{q.empty? ? "" : "?#{URI.encode_www_form(q)}"}", body: input)
     end
 
     # GET /v1/audit — the org's audit log, newest first. API actions appear as
     # "apikey:<prefix>". Requires an unscoped key that is not property-locked.
     # @return [Hash] { "entries" => [...] }.
-    def audit(limit: nil)
-      query = limit.nil? ? "" : "?#{URI.encode_www_form("limit" => limit)}"
+    def audit(limit: nil, actor: nil)
+      params = { "limit" => limit, "actor" => actor }.compact
+      query = params.empty? ? "" : "?#{URI.encode_www_form(params)}"
       get("/audit#{query}")
+    end
+
+    # GET /v1/audit/sink — where the audit log is streamed as CloudEvents (never the secret).
+    def get_audit_sink
+      get("/audit/sink")
+    end
+
+    # PUT /v1/audit/sink {type: "webhook", url, secret?} — a generated secret is returned once.
+    def set_audit_sink(input)
+      request("PUT", "/audit/sink", body: input)
+    end
+
+    # DELETE /v1/audit/sink — stop the audit-log export.
+    def remove_audit_sink
+      request("DELETE", "/audit/sink")
+      nil
+    end
+
+    # GET /v1/integration-health/waivers — checks the org chose not to meet.
+    def health_waivers(cbid: nil)
+      query = cbid.nil? ? "" : "?#{URI.encode_www_form("cbid" => cbid)}"
+      get("/integration-health/waivers#{query}")
+    end
+
+    # PUT /v1/integration-health/waivers {cbid?, check, subject?, reason, until?} — audited.
+    def set_health_waiver(input)
+      request("PUT", "/integration-health/waivers", body: input)
+    end
+
+    # DELETE /v1/integration-health/waivers — the check reports its real state again.
+    def remove_health_waiver(check, cbid: nil, subject: nil)
+      params = { "check" => check, "cbid" => cbid, "subject" => subject }.compact
+      request("DELETE", "/integration-health/waivers?#{URI.encode_www_form(params)}")
+      nil
     end
 
     # Record a consent decision via the PUBLIC ingest endpoint
@@ -219,6 +298,8 @@ module CookieMunch
       url = "#{@base_url}#{prefix}#{path}"
       hdrs = base_headers
       hdrs["Prefer"] = "strict-unknown-fields" if @strict_unknown_fields && http_method.to_s.upcase != "GET"
+      hdrs["X-Secret-Recipient"] = @secret_recipient if @secret_recipient && http_method.to_s.upcase != "GET"
+      hdrs.merge!(stringify_headers(@extra_headers)) unless @extra_headers.empty?
       hdrs.merge!(stringify_headers(headers)) if headers
 
       encoded = nil
@@ -249,6 +330,15 @@ module CookieMunch
     # @api private
     def get(path)
       request("GET", path)
+    end
+
+
+    # ?metadata[k]=v tag filters for list endpoints.
+    # @api private
+    def meta_qs(metadata)
+      return "" if metadata.nil? || metadata.empty?
+
+      "?" + metadata.map { |k, v| "metadata%5B#{URI.encode_www_form_component(k.to_s)}%5D=#{URI.encode_www_form_component(v.to_s)}" }.join("&")
     end
 
     private

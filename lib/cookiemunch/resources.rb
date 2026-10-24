@@ -36,8 +36,9 @@ module CookieMunch
   # /v1/sites/* — site CRUD, config, cookies, scans, A/B, snippet, verify,
   # brand extraction, and the v2 banner flow authoring surface.
   class Sites < Resource
-    def list
-      @client.get("/sites")
+    # metadata: { "forgedeck_product" => "referalli" } keeps only sites with those tags.
+    def list(metadata: nil)
+      @client.get("/sites#{@client.meta_qs(metadata)}")
     end
 
     def create(domain:, cbid: nil)
@@ -65,6 +66,12 @@ module CookieMunch
 
     def delete(cbid)
       @client.request("DELETE", "/sites/#{enc(cbid)}")
+    end
+
+    # DELETE /v1/sites/{cbid}?hard=1 — purge a SANDBOX site (its consent ledger, declarations and test
+    # rights requests too). Anything not created as a sandbox is 403 not_a_sandbox.
+    def delete_sandbox(cbid)
+      @client.request("DELETE", "/sites/#{enc(cbid)}?hard=1")
     end
 
     # GET /v1/sites/{cbid}/partners — partner links and the partner catalogue.
@@ -137,7 +144,7 @@ module CookieMunch
       @client.request("POST", "/sites/#{enc(cbid)}/scan#{qs("wait" => num(wait))}")
     end
 
-    # The last scan: "state" (queued, scanning, done, failed), "scanId", timings,
+    # The last scan: "state" (idle, queued, scanning, done, failed), "scanId", timings,
     # "cookieCount", "pagesVisited", "error". wait: (seconds, at most 60) holds the
     # request until a running scan settles. @return [Hash] ScanStatus.
     def scan_status(cbid, wait: nil)
@@ -248,7 +255,7 @@ module CookieMunch
       nil
     end
 
-    # Every declaration preset (atlas, forumulate, chatly, cookiemunch, referally): its parameters, what
+    # Every declaration preset (atlas, forumulate, chatly, cookiemunch, referalli, firstpromoter, partnerstack, tapfiliate, impact): its parameters, what
     # it has declared on this site, and whether the vendor's manifest exists yet.
     # @return [Hash] { "presets" => [...] }.
     def cookie_presets(cbid)
@@ -257,9 +264,32 @@ module CookieMunch
 
     # Apply (or re-sync) a vendor preset: declares what that platform writes, marked
     # "vendor". Atlas takes { "frontendApiHost", "crossSubdomainCookies" }; Chatly
-    # { "publicId", "dragging", "category" }; Referally { "cookieDomain", "cookieDays", "category" }. Names you declared are kept ("skipped").
+    # { "publicId", "dragging", "category" }; referral presets { "cookieDomain", "cookieDays", "category" } (referalli "legacyName", impact "campaignId"). Names you declared are kept ("skipped").
     def apply_cookie_preset(cbid, preset, params = {}, dry_run: false)
       @client.request("PUT", "/sites/#{enc(cbid)}/cookies/presets/#{enc(preset)}#{qs("dryRun" => dry_run ? "1" : nil)}", body: params || {})
+    end
+
+    # Declare any vendor's cookies and storage from its embed manifest: url: (an https
+    # /.well-known/forgedeck-embed.json, re-read hourly) or manifest: (the document). The vendor
+    # id is the manifest's "product"; remove it with remove_cookie_preset(cbid, product).
+    def import_cookie_manifest(cbid, url: nil, manifest: nil, params: nil, dry_run: false)
+      body = url.nil? ? { "manifest" => manifest } : { "url" => url }
+      body["params"] = params unless params.nil?
+      @client.request("PUT", "/sites/#{enc(cbid)}/cookies/presets/custom#{qs("dryRun" => dry_run ? "1" : nil)}", body: body)
+    end
+
+    # What to declare: detected vendors and one suggestion per undeclared cookie or key.
+    def cookie_suggestions(cbid)
+      @client.request("GET", "/sites/#{enc(cbid)}/cookies/suggestions")
+    end
+
+    # Declare the suggestions: detected vendors' presets, then every other one with a purpose.
+    # Run with dry_run: true first.
+    def declare_cookie_suggestions(cbid, names: nil, presets: nil, dry_run: false)
+      body = {}
+      body["names"] = names unless names.nil?
+      body["presets"] = presets unless presets.nil?
+      @client.request("POST", "/sites/#{enc(cbid)}/cookies/suggestions/declare#{qs("dryRun" => dry_run ? "1" : nil)}", body: body)
     end
 
     # Remove every declaration a vendor preset made.
@@ -344,6 +374,19 @@ module CookieMunch
       @client.request("POST", "/sites/#{enc(cbid)}/brand", body: {})
     end
 
+    # GET /v1/sites/{cbid}/brand — the brand.json last imported: each role, the theme token it
+    # sets, its source ("brand.json" or "site"), ignored and warnings.
+    def get_brand(cbid)
+      @client.request("GET", "/sites/#{enc(cbid)}/brand")
+    end
+
+    # PUT /v1/sites/{cbid}/brand — import a DTCG brand.json ({ "url" => "https://…" } or the
+    # document) into the banner theme and the rights page. Values the site set itself are kept
+    # (brand.json < site banner theme < per-banner variant). dry_run: true saves nothing.
+    def set_brand(cbid, input, dry_run: false)
+      @client.request("PUT", "/sites/#{enc(cbid)}/brand#{qs("dryRun" => dry_run ? "1" : nil)}", body: input)
+    end
+
     # Mint a short-lived signed token to preview the banner as a visitor in +region+
     # speaking +lang+ sees it (headless browsers included; nothing is recorded).
     # @return [Hash] { "cbid", "token", "expiresAt", "previewUrl", "region", "lang" }
@@ -388,6 +431,11 @@ module CookieMunch
       @client.get("/sites/#{enc(cbid)}/consent/stats#{qs("from" => from, "to" => to)}")
     end
 
+    # Opt-in by region and A/B variant, and the decision rate. Language and time-to-decision are not recorded (nil).
+    def insights(cbid, from: nil, to: nil)
+      @client.get("/sites/#{enc(cbid)}/consent/insights#{qs("from" => from, "to" => to)}")
+    end
+
     # Recent anonymised consent records (newest first).
     def log(cbid, from: nil, to: nil, limit: nil)
       @client.get("/sites/#{enc(cbid)}/consent/log#{qs("from" => from, "to" => to, "limit" => limit)}")
@@ -412,6 +460,13 @@ module CookieMunch
     # Export a subject's consent records by receipt stamp (GDPR access/portability).
     def export_subject(cbid, stamp)
       @client.get("/sites/#{enc(cbid)}/subject-export?stamp=#{enc(stamp)}")
+    end
+
+    # The reserved categories (support_chat, referrals) a site switches on with
+    # categories.suite: stance, fallback, basis, wording in every banner language, known
+    # vendors. Public — GET /v1/categories/registry. @return [Hash]
+    def category_registry
+      @client.get("/categories/registry")
     end
   end
 
@@ -449,6 +504,43 @@ module CookieMunch
     # Returns { "request" => ..., "changed" => bool }.
     def mark_test(id)
       @client.request("POST", "/dsar/#{enc(id)}/mark-test")
+    end
+
+    # The request carrying one X-ForgeDeck-Trace (GET /v1/dsar?trace=).
+    def list_by_trace(trace)
+      @client.get("/dsar#{qs('trace' => trace)}")
+    end
+
+    # Open a case fanned out to every connected system (POST /v1/dsar/requests). +type+ takes the
+    # canonical words (access, deletion, closure, restriction, rectification) or an alias
+    # (erasure, erase, export). +identity+ is { "iss", "sub", "ext", "principal" } from any issuer
+    # the site trusts. +source+ product/atlas attests the person (needs dsar:write); admin files
+    # it received. +idempotency_key+ (16–128 chars) makes a retry answer the same case.
+    def open_case(cbid, type, emails: nil, identity: nil, subject_token: nil, source: nil, reason: nil,
+                  skip_systems: nil, fulfill: nil, test: nil, idempotency_key: nil, trace: nil)
+      body = { "cbid" => cbid, "type" => type, "subjectToken" => subject_token, "source" => source, "reason" => reason,
+               "skipSystems" => skip_systems, "fulfill" => fulfill, "test" => test }.reject { |_, v| v.nil? }
+      unless emails.nil? && identity.nil?
+        body["subject"] = { "emails" => Array(emails) }
+        body["subject"]["identity"] = identity unless identity.nil?
+      end
+      headers = { "Idempotency-Key" => idempotency_key, "X-ForgeDeck-Trace" => trace }.reject { |_, v| v.nil? }
+      @client.request("POST", "/dsar/requests", body: body, headers: headers.empty? ? nil : headers)
+    end
+
+    # One case across every connected system.
+    def get_case(id)
+      @client.get("/dsar/requests/#{enc(id)}")
+    end
+
+    # Cancel a case before executeAfter; every system keeps its data.
+    def cancel_case(id)
+      @client.request("POST", "/dsar/requests/#{enc(id)}/cancel")
+    end
+
+    # The signed (Ed25519) receipt for a case.
+    def case_receipt(id)
+      @client.get("/dsar/requests/#{enc(id)}/receipt")
     end
 
     # @param to_status [String] received | verifying | in_progress | completed | rejected.
@@ -665,8 +757,9 @@ module CookieMunch
     # org-wide endpoint.
     # @return [Hash] { "key", "prefix" }.
     # expires_at: epoch ms or an ISO date-time (not with expires_in_days); omit both for no expiry.
-    def issue(name: nil, scopes: nil, cbids: nil, expires_in_days: nil, expires_at: nil)
-      body = { "name" => name, "scopes" => scopes, "cbids" => cbids, "expiresInDays" => expires_in_days, "expiresAt" => expires_at }
+    def issue(name: nil, scopes: nil, cbids: nil, expires_in_days: nil, expires_at: nil, owner: nil, strict_unknown_fields: nil)
+      body = { "name" => name, "scopes" => scopes, "cbids" => cbids, "expiresInDays" => expires_in_days, "expiresAt" => expires_at,
+               "owner" => owner, "strictUnknownFields" => strict_unknown_fields }
       @client.request("POST", "/keys", body: body.reject { |_, v| v.nil? })
     end
 
@@ -686,8 +779,8 @@ module CookieMunch
 
     # Rename a key, replace its scopes or property lock, or set (epoch ms / ISO) or remove
     # (expires_at: nil) its expiry. Only the fields sent change.
-    def update(prefix, name: nil, scopes: nil, cbids: nil, expires_at: UNSET_EXPIRY)
-      body = { "name" => name, "scopes" => scopes, "cbids" => cbids }.reject { |_, v| v.nil? }
+    def update(prefix, name: nil, scopes: nil, cbids: nil, expires_at: UNSET_EXPIRY, owner: nil, strict_unknown_fields: nil)
+      body = { "name" => name, "scopes" => scopes, "cbids" => cbids, "owner" => owner, "strictUnknownFields" => strict_unknown_fields }.reject { |_, v| v.nil? }
       body["expiresAt"] = expires_at unless expires_at.equal?(UNSET_EXPIRY)
       @client.request("PATCH", "/keys/#{enc(prefix)}", body: body)
     end
@@ -697,12 +790,72 @@ module CookieMunch
     def report(unused_days: nil, expiring_days: nil)
       @client.get("/keys/report#{qs("unusedDays" => unused_days, "expiringDays" => expiring_days)}")
     end
+
+    # GET /v1/keys?shape=standard — the suite-standard listing.
+    def list_standard
+      @client.get("/keys?shape=standard")
+    end
+
+    # GET /v1/keys/self — the calling key itself (any key): scopes, properties, expiry, owner.
+    def self_key
+      @client.get("/keys/self")
+    end
+
+    # POST /v1/keys/self/roll — the calling key rotates itself; the old secret stops at once.
+    # Build the client with headers: { "Idempotency-Key" => ... } so a lost answer replays.
+    def roll_self
+      @client.request("POST", "/keys/self/roll")
+    end
+
+    # POST /v1/keys/vend — a short-lived key (at most 12 hours) within this key's own scopes and
+    # properties. Needs keys:write or a full-access key.
+    def vend(scopes, ttl_seconds, cbids: nil, name: nil)
+      body = { "scopes" => scopes, "ttlSeconds" => ttl_seconds, "cbids" => cbids, "name" => name }.reject { |_, v| v.nil? }
+      @client.request("POST", "/keys/vend", body: body)
+    end
+
+    # POST /v1/keys/revoke_leaked — revoke a published secret. Needs no valid key; always answers
+    # { "received" => n }.
+    def revoke_leaked(key, source: nil)
+      body = { "key" => key }
+      body["source"] = source unless source.nil?
+      @client.request("POST", "/keys/revoke_leaked", body: body)
+    end
+  end
+
+  # /v1/metadata/{type}/{id} — tags on created resources (type: org, site, webhook, executor, dsar, partner_link).
+  class Metadata < Resource
+    def get(type, id)
+      @client.get("/metadata/#{enc(type)}/#{enc(id)}")
+    end
+
+    # Merge tags (a nil value removes one). forgedeck_sandbox cannot be set here.
+    def update(type, id, metadata, dry_run: false)
+      @client.request("PATCH", "/metadata/#{enc(type)}/#{enc(id)}#{qs("dryRun" => dry_run ? "1" : nil)}", body: { "metadata" => metadata })
+    end
+  end
+
+  # /v1/partner_links — suite-standard partner links.
+  class PartnerLinks < Resource
+    def list(metadata: nil)
+      @client.get("/partner_links#{@client.meta_qs(metadata)}")
+    end
+
+    def create(partner, resource, scopes, expires_at: nil, external_id: nil, label: nil)
+      body = { "partner" => partner, "resource" => resource, "scopes" => scopes,
+               "expires_at" => expires_at, "externalId" => external_id, "label" => label }.reject { |_, v| v.nil? }
+      @client.request("POST", "/partner_links", body: body)
+    end
+
+    def revoke(id)
+      @client.request("DELETE", "/partner_links/#{enc(id)}")
+    end
   end
 
   # /v1/webhooks/* — webhook subscriptions.
   class Webhooks < Resource
-    def list
-      @client.get("/webhooks")
+    def list(metadata: nil)
+      @client.get("/webhooks#{@client.meta_qs(metadata)}")
     end
 
     # @param events [Array<String>] e.g. ["consent.recorded", "scan.completed"].
@@ -747,6 +900,11 @@ module CookieMunch
     # Deliver a dead-lettered event again, to the subscription as it is now.
     def replay_dead_letter(id)
       @client.request("POST", "/webhooks/dead-letters/#{enc(id)}/replay")
+    end
+
+    # Send what a failing or disabled endpoint missed since `since` (epoch ms or ISO), oldest first.
+    def replay(id, since, limit: nil)
+      @client.request("POST", "/webhooks/#{enc(id)}/replay#{qs("since" => since, "limit" => limit)}")
     end
   end
 
@@ -1015,8 +1173,14 @@ module CookieMunch
     end
 
     # Systems connected to run part of a request themselves (an identity platform, say).
-    def executors
-      @client.get("/dsar/executors")
+    def executors(metadata: nil)
+      @client.get("/dsar/executors#{@client.meta_qs(metadata)}")
+    end
+
+    # One connection with its full profile, never its credentials. Read it before changing the
+    # profile: update_executor replaces the whole profile.
+    def executor(id)
+      @client.get("/dsar/executors/#{enc(id)}")
     end
 
     # Connect one. +profile+ describes that system's API — paths, the words it uses for
@@ -1038,11 +1202,12 @@ module CookieMunch
     # response carries presetVersion and presetDiff. A preset waiting on another platform's
     # API is refused (409 preset_waiting_on_platform); see +executor_presets+.
     def connect_executor_preset(preset:, secret_key:, system: nil, base_url: nil, org_id: nil, atlas_id_app_id: nil,
-                                preset_version: nil, webhook_secret: nil, auto: nil, cbid: nil, dry_run: false)
+                                preset_version: nil, webhook_secret: nil, auto: nil, cbid: nil,
+                                revoke_atlas_id_grant: nil, label: nil, orchestrator: nil, dry_run: false)
       body = {
         "preset" => preset, "secretKey" => secret_key, "system" => system, "baseUrl" => base_url, "orgId" => org_id,
         "atlasIdAppId" => atlas_id_app_id, "presetVersion" => preset_version, "webhookSecret" => webhook_secret,
-        "auto" => auto, "cbid" => cbid
+        "auto" => auto, "cbid" => cbid, "revokeAtlasIdGrant" => revoke_atlas_id_grant, "label" => label, "orchestrator" => orchestrator
       }.reject { |_, v| v.nil? }
       @client.request("POST", "/dsar/executors#{dry_run ? '?dryRun=1' : ''}", body: body)
     end
@@ -1055,20 +1220,29 @@ module CookieMunch
 
     # Rebuild a connection from its preset's latest version (or +preset_version+), keeping its
     # id and credential; +preset:+ adopts one on a hand-written connection. Answers with a
-    # diff; +dry_run: true+ (?dryRun=1) changes nothing.
-    def upgrade_executor_preset(id, preset: nil, preset_version: nil, org_id: nil, atlas_id_app_id: nil, dry_run: false)
-      body = { "preset" => preset, "presetVersion" => preset_version, "orgId" => org_id, "atlasIdAppId" => atlas_id_app_id }.reject { |_, v| v.nil? }
+    # diff; your hand edits (profileOverrides) are kept and listed as kept or conflict, and
+    # +accept_preset:+ names the paths that take the preset's value again. A pinned connection is
+    # refused (409 preset_pinned). +dry_run: true+ (?dryRun=1) changes nothing.
+    def upgrade_executor_preset(id, preset: nil, preset_version: nil, org_id: nil, atlas_id_app_id: nil,
+                                revoke_atlas_id_grant: nil, accept_preset: nil, dry_run: false)
+      body = {
+        "preset" => preset, "presetVersion" => preset_version, "orgId" => org_id, "atlasIdAppId" => atlas_id_app_id,
+        "revokeAtlasIdGrant" => revoke_atlas_id_grant, "acceptPreset" => accept_preset
+      }.reject { |_, v| v.nil? }
       @client.request("POST", "/dsar/executors/#{enc(id)}/upgrade-preset#{dry_run ? '?dryRun=1' : ''}", body: body)
     end
 
     UNSET = Object.new.freeze
 
     # Change a connection in place. Only what you pass changes; the credential is kept unless
-    # +secret_key+ is given. +webhook_secret: nil+ removes the webhook secret. +dry_run: true+
+    # +secret_key+ is given. +webhook_secret: nil+ removes the webhook secret, +label: nil+ the
+    # label; +preset_pinned: true+ stops upgrade_executor_preset changing it. +dry_run: true+
     # (?dryRun=1) returns the would-be connection and a diff, and changes nothing.
-    def update_executor(id, profile: nil, base_url: nil, secret_key: nil, webhook_secret: UNSET, auto: nil, dry_run: false)
-      body = { "profile" => profile, "baseUrl" => base_url, "secretKey" => secret_key, "auto" => auto }.reject { |_, v| v.nil? }
+    def update_executor(id, profile: nil, base_url: nil, secret_key: nil, webhook_secret: UNSET, auto: nil,
+                        label: UNSET, preset_pinned: nil, orchestrator: nil, dry_run: false)
+      body = { "profile" => profile, "baseUrl" => base_url, "secretKey" => secret_key, "auto" => auto, "presetPinned" => preset_pinned, "orchestrator" => orchestrator }.reject { |_, v| v.nil? }
       body["webhookSecret"] = webhook_secret unless webhook_secret.equal?(UNSET)
+      body["label"] = label unless label.equal?(UNSET)
       @client.request("PATCH", "/dsar/executors/#{enc(id)}#{dry_run ? '?dryRun=1' : ''}", body: body)
     end
 
@@ -1083,6 +1257,16 @@ module CookieMunch
       @client.get("/dsar/executors/#{enc(id)}/webhook/deliveries")
     end
 
+    # Re-check a connection now: a canary test that records its health (for a deploy pipeline).
+    def recheck_executor(id)
+      @client.request("POST", "/dsar/executors/#{enc(id)}/recheck")
+    end
+
+    # A connection's last health checks, newest first (+limit+ 1 to 50).
+    def executor_health_history(id, limit: nil)
+      @client.get("/dsar/executors/#{enc(id)}/health/history#{qs("limit" => limit)}")
+    end
+
     def disconnect_executor(id)
       @client.request("DELETE", "/dsar/executors/#{enc(id)}")
       nil
@@ -1095,6 +1279,16 @@ module CookieMunch
     def test_executor(id, email: nil, operation: nil, open: nil, canary: nil)
       body = { "email" => email, "canary" => canary, "operation" => operation, "open" => open }.reject { |_, v| v.nil? }
       @client.request("POST", "/dsar/executors/#{enc(id)}/test", body: body)
+    end
+
+    # Run the cm-standard-v2 conformance kit against a connection, on the canary subject only.
+    def executor_conformance(id)
+      @client.request("POST", "/dsar/executors/#{enc(id)}/test", body: { "conformance" => true })
+    end
+
+    # A new completion secret, shown once; the old one keeps verifying for 24 hours.
+    def roll_executor_completion_secret(id)
+      @client.request("POST", "/dsar/executors/#{enc(id)}/completion-secret/roll")
     end
 
     # One task: its status history, its upstream request log, and its system's versions.
@@ -1195,6 +1389,26 @@ module CookieMunch
 
     def self.body(mode, provider, site_key, secret, min_score)
       { "mode" => mode, "provider" => provider, "siteKey" => site_key, "secret" => secret, "minScore" => min_score }.reject { |_, v| v.nil? }
+    end
+  end
+
+  # /v1/sites/{cbid}/dsar-settings — graceDays (0–30; 7 for a new site, 0 until set for an existing one): how long an erasure or account
+  # closure waits before any system acts. Needs dsar:read / dsar:write.
+  class DsarSettings < Resource
+    def get(cbid)
+      @client.get("/sites/#{enc(cbid)}/dsar-settings")
+    end
+
+    def set(cbid, grace_days:)
+      @client.request("PUT", "/sites/#{enc(cbid)}/dsar-settings", body: { "graceDays" => grace_days })
+    end
+  end
+
+  # Cards for support, CRM and helpdesk sidebars. Needs dsar:read.
+  class Integrations < Resource
+    # A person's open rights requests, by +iss+ and +sub+ (preferred) or +email+.
+    def subject_card(app, iss: nil, sub: nil, email: nil)
+      @client.get("/integrations/#{enc(app)}/card#{qs('iss' => iss, 'sub' => sub, 'email' => email)}")
     end
   end
 
