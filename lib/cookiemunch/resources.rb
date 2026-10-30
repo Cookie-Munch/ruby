@@ -36,7 +36,7 @@ module CookieMunch
   # /v1/sites/* — site CRUD, config, cookies, scans, A/B, snippet, verify,
   # brand extraction, and the v2 banner flow authoring surface.
   class Sites < Resource
-    # metadata: { "forgedeck_product" => "referalli" } keeps only sites with those tags.
+    # metadata: { "stack_product" => "referalli" } keeps only sites with those tags.
     def list(metadata: nil)
       @client.get("/sites#{@client.meta_qs(metadata)}")
     end
@@ -270,7 +270,7 @@ module CookieMunch
     end
 
     # Declare any vendor's cookies and storage from its embed manifest: url: (an https
-    # /.well-known/forgedeck-embed.json, re-read hourly) or manifest: (the document). The vendor
+    # /.well-known/<product>-embed.json, re-read hourly) or manifest: (the document). The vendor
     # id is the manifest's "product"; remove it with remove_cookie_preset(cbid, product).
     def import_cookie_manifest(cbid, url: nil, manifest: nil, params: nil, dry_run: false)
       body = url.nil? ? { "manifest" => manifest } : { "url" => url }
@@ -506,7 +506,7 @@ module CookieMunch
       @client.request("POST", "/dsar/#{enc(id)}/mark-test")
     end
 
-    # The request carrying one X-ForgeDeck-Trace (GET /v1/dsar?trace=).
+    # The request carrying one X-Trace-Id (GET /v1/dsar?trace=).
     def list_by_trace(trace)
       @client.get("/dsar#{qs('trace' => trace)}")
     end
@@ -524,7 +524,7 @@ module CookieMunch
         body["subject"] = { "emails" => Array(emails) }
         body["subject"]["identity"] = identity unless identity.nil?
       end
-      headers = { "Idempotency-Key" => idempotency_key, "X-ForgeDeck-Trace" => trace }.reject { |_, v| v.nil? }
+      headers = { "Idempotency-Key" => idempotency_key, "X-Trace-Id" => trace }.reject { |_, v| v.nil? }
       @client.request("POST", "/dsar/requests", body: body, headers: headers.empty? ? nil : headers)
     end
 
@@ -866,7 +866,7 @@ module CookieMunch
       @client.get("/metadata/#{enc(type)}/#{enc(id)}")
     end
 
-    # Merge tags (a nil value removes one). forgedeck_sandbox cannot be set here.
+    # Merge tags (a nil value removes one). stack_sandbox cannot be set here.
     def update(type, id, metadata, dry_run: false)
       @client.request("PATCH", "/metadata/#{enc(type)}/#{enc(id)}#{qs("dryRun" => dry_run ? "1" : nil)}", body: { "metadata" => metadata })
     end
@@ -1238,11 +1238,13 @@ module CookieMunch
     # "forumulate" (+org_id+), "cm-standard-v1" (+base_url+ and +system+) or "chatly". The
     # response carries presetVersion and presetDiff. A preset waiting on another platform's
     # API is refused (409 preset_waiting_on_platform); see +executor_presets+.
-    def connect_executor_preset(preset:, secret_key:, system: nil, base_url: nil, org_id: nil, atlas_id_app_id: nil,
+    # Send +secret_key:+, or +mint_from:+ (a partner id that registered an executorKeyUrl) to have that
+    # partner mint the key for the site under its link; +external_id:+ names the partner account.
+    def connect_executor_preset(preset:, secret_key: nil, mint_from: nil, external_id: nil, system: nil, base_url: nil, org_id: nil, atlas_id_app_id: nil,
                                 preset_version: nil, webhook_secret: nil, auto: nil, cbid: nil,
                                 revoke_atlas_id_grant: nil, label: nil, orchestrator: nil, dry_run: false)
       body = {
-        "preset" => preset, "secretKey" => secret_key, "system" => system, "baseUrl" => base_url, "orgId" => org_id,
+        "preset" => preset, "secretKey" => secret_key, "mintFrom" => mint_from, "externalId" => external_id, "system" => system, "baseUrl" => base_url, "orgId" => org_id,
         "atlasIdAppId" => atlas_id_app_id, "presetVersion" => preset_version, "webhookSecret" => webhook_secret,
         "auto" => auto, "cbid" => cbid, "revokeAtlasIdGrant" => revoke_atlas_id_grant, "label" => label, "orchestrator" => orchestrator
       }.reject { |_, v| v.nil? }
@@ -1441,11 +1443,22 @@ module CookieMunch
     end
   end
 
-  # Cards for support, CRM and helpdesk sidebars. Needs dsar:read.
+  # Cards for support, CRM and helpdesk sidebars (dsar:read), and identity-provider connect (dsar:write).
   class Integrations < Resource
     # A person's open rights requests, by +iss+ and +sub+ (preferred) or +email+.
     def subject_card(app, iss: nil, sub: nil, email: nil)
       @client.get("/integrations/#{enc(app)}/card#{qs('iss' => iss, 'sub' => sub, 'email' => email)}")
+    end
+
+    # POST /v1/integrations/{provider}/connect: connect an identity provider's privacy orchestrator.
+    # Mints a dsar:write key locked to +cbid+ and hands it to the provider, authorised with
+    # +provider_key+; the minted key is never returned, only its prefix. +connector+ ({ url, method,
+    # body }) only for a provider with no built-in connector. Needs dsar:write (no keys:write);
+    # dry_run: true mints and sends nothing.
+    def connect(provider, cbid, provider_key, connector: nil, dry_run: false)
+      body = { "cbid" => cbid, "providerKey" => provider_key }
+      body["connector"] = connector unless connector.nil?
+      @client.request("POST", "/integrations/#{enc(provider)}/connect#{qs('dryRun' => dry_run ? '1' : nil)}", body: body)
     end
   end
 

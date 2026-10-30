@@ -176,6 +176,7 @@
     "POST /v1/dsar/{}/plan",
     "POST /v1/identity/link",
     "POST /v1/identity/resolve",
+    "POST /v1/integrations/{}/connect",
     "POST /v1/keys",
     "POST /v1/keys/revoke_leaked",
     "POST /v1/keys/self/roll",

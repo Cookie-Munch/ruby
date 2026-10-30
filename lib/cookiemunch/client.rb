@@ -138,12 +138,12 @@ module CookieMunch
     end
 
     # DELETE /v1/orgs/{id}?hard=1 — remove a SANDBOX organisation of this account (created with
-    # metadata.forgedeck_sandbox). Anything else is 403 not_a_sandbox.
+    # metadata.stack_sandbox). Anything else is 403 not_a_sandbox.
     def delete_sandbox_org(id)
       request("DELETE", "/orgs/#{URI.encode_www_form_component(id.to_s)}?hard=1")
     end
 
-    # GET /v1/provision/env — what forgedeck env writes for the product provisioned with this ref:
+    # GET /v1/provision/env — what env writes for the product provisioned with this ref:
     # names, non-secret values, and references for secrets.
     def provision_env(ref)
       get("/provision/env?#{URI.encode_www_form("ref" => ref)}")
@@ -183,7 +183,7 @@ module CookieMunch
     end
 
     # GET /v1/embed?cbid= — the site's embed manifest (the tenant variant of
-    # /.well-known/forgedeck-embed.json): every origin by CSP directive and every browser key the
+    # /.well-known/cookiemunch-embed.json): every origin by CSP directive and every browser key the
     # embed writes for this site's config. Public: no key is needed, but sending one is harmless.
     def embed_manifest(cbid)
       get("/embed?#{URI.encode_www_form("cbid" => cbid)}")
