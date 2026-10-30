@@ -263,8 +263,8 @@ module CookieMunch
     end
 
     # Apply (or re-sync) a vendor preset: declares what that platform writes, marked
-    # "vendor". Atlas takes { "frontendApiHost", "crossSubdomainCookies" }; Chatly
-    # { "publicId", "dragging", "category" }; referral presets { "cookieDomain", "cookieDays", "category" } (referalli "legacyName", impact "campaignId"). Names you declared are kept ("skipped").
+    # "vendor". Atlas takes { "frontendApiHost", "crossSubdomainCookies", "publishableKey" }; Chatly
+    # { "publicId", "dragging", "storage", "tracking", "category" }; referral presets { "cookieDomain", "cookieDays", "category" } (referalli "legacyName", impact "campaignId"). Names you declared are kept ("skipped").
     def apply_cookie_preset(cbid, preset, params = {}, dry_run: false)
       @client.request("PUT", "/sites/#{enc(cbid)}/cookies/presets/#{enc(preset)}#{qs("dryRun" => dry_run ? "1" : nil)}", body: params || {})
     end
