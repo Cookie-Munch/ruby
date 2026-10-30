@@ -1362,6 +1362,12 @@ module CookieMunch
     def upcoming(days: nil)
       @client.get("/regulatory/upcoming#{qs("days" => days)}")
     end
+
+    # GET /v1/sites/{cbid}/regulatory/upcoming — what takes effect within days (default 90) where at
+    # least min_share (default 0.01) of the site's last 30 days of decisions came from. Needs sites:read.
+    def upcoming_for_site(cbid, days: nil, min_share: nil)
+      @client.get("/sites/#{enc(cbid)}/regulatory/upcoming#{qs("days" => days, "minShare" => min_share)}")
+    end
   end
 
   # POST /v1/sites/{cbid}/rights-links — account-linked rights requests.

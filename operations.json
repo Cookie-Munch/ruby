@@ -115,6 +115,7 @@
     "GET /v1/sites/{}/partners",
     "GET /v1/sites/{}/policy",
     "GET /v1/sites/{}/receipt/{}",
+    "GET /v1/sites/{}/regulatory/upcoming",
     "GET /v1/sites/{}/rights-captcha",
     "GET /v1/sites/{}/rights-identity",
     "GET /v1/sites/{}/rights-page",
