@@ -210,6 +210,7 @@
     "POST /v1/sites/{}/brand",
     "POST /v1/sites/{}/config/lint",
     "POST /v1/sites/{}/consent-sync-secret",
+    "POST /v1/sites/{}/cookies/plan",
     "POST /v1/sites/{}/cookies/suggestions/declare",
     "POST /v1/sites/{}/cookies/translate",
     "POST /v1/sites/{}/cookies/{}/retire",

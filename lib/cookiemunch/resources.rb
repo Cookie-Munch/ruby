@@ -294,6 +294,13 @@ module CookieMunch
       @client.request("POST", "/sites/#{enc(cbid)}/cookies/suggestions/declare#{qs("dryRun" => dry_run ? "1" : nil)}", body: body)
     end
 
+    # Plan a provisioning run, storing nothing: +cookies+/+replace+ (the declarations PUT), then each
+    # preset in +presets+ (vendor => params) in key order, against one scratch copy.
+    # Answers { dryRun, steps, declared, count, diff }.
+    def plan_cookies(cbid, input = {})
+      @client.request("POST", "/sites/#{enc(cbid)}/cookies/plan", body: input)
+    end
+
     # The site's own translation account (DeepL or Google): provider, key last four and
     # fingerprint, when connected. Never the key.
     def translation(cbid)
