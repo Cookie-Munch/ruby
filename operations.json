@@ -175,6 +175,8 @@
     "POST /v1/dsar/{}/export",
     "POST /v1/dsar/{}/mark-test",
     "POST /v1/dsar/{}/plan",
+    "POST /v1/dsar/{}/tasks/{}/approve",
+    "POST /v1/dsar/{}/tasks/{}/reject",
     "POST /v1/identity/link",
     "POST /v1/identity/resolve",
     "POST /v1/integrations/{}/connect",

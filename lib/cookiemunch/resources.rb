@@ -55,12 +55,14 @@ module CookieMunch
 
     # PATCH /v1/sites/{cbid} — rename or move a site. The cbid and the consent ledger stay; a
     # domain move clears verification. name: nil clears the display name; aliases: [] clears them.
+    # keep_old_domain: true with a new domain keeps the old one as an alias while both run.
     # dry_run: true answers with the diff and stores nothing.
-    def update(cbid, domain: nil, name: UNSET_NAME, aliases: nil, dry_run: false)
+    def update(cbid, domain: nil, name: UNSET_NAME, aliases: nil, keep_old_domain: false, dry_run: false)
       body = {}
       body["domain"] = domain unless domain.nil?
       body["name"] = name unless name.equal?(UNSET_NAME)
       body["aliases"] = aliases unless aliases.nil?
+      body["keepOldDomain"] = true if keep_old_domain
       @client.request("PATCH", "/sites/#{enc(cbid)}#{qs("dryRun" => dry_run ? "1" : nil)}", body: body)
     end
 
@@ -511,6 +513,12 @@ module CookieMunch
       @client.get("/dsar#{qs('trace' => trace)}")
     end
 
+    # The requests with one origin (GET /v1/dsar?origin=): "account_deletion", those a
+    # person's own account deletion opened.
+    def list_by_origin(origin)
+      @client.get("/dsar#{qs('origin' => origin)}")
+    end
+
     # Open a case fanned out to every connected system (POST /v1/dsar/requests). +type+ takes the
     # canonical words (access, deletion, closure, restriction, rectification) or an alias
     # (erasure, erase, export). +identity+ is { "iss", "sub", "ext", "principal" } from any issuer
@@ -895,11 +903,13 @@ module CookieMunch
       @client.get("/webhooks#{@client.meta_qs(metadata)}")
     end
 
-    # @param events [Array<String>] e.g. ["consent.recorded", "scan.completed"].
+    # @param events [Array<String>] e.g. ["consent.recorded", "scan.completed"], "*" or "dsar.*".
     # @param cbid [String, nil] optional property filter; nil = all properties.
-    def create(url:, events:, cbid: nil)
+    # @param secret [String, nil] your own signing secret (32-256 chars); not echoed back.
+    def create(url:, events:, cbid: nil, secret: nil)
       body = { "url" => url, "events" => events }
       body["cbid"] = cbid unless cbid.nil?
+      body["secret"] = secret unless secret.nil?
       @client.request("POST", "/webhooks", body: body)
     end
 
@@ -916,9 +926,11 @@ module CookieMunch
       @client.request("DELETE", "/webhooks/#{enc(id)}")
     end
 
-    # Rotate a subscription's signing secret. The new secret is returned once.
-    # @return [Hash] { "secret" }.
-    def roll_secret(id)
+    # Rotate a subscription's signing secret. A generated one is returned once; one you pass is not echoed.
+    # @return [Hash] { "secret" }, or { "rolled" => true } for a secret you chose.
+    def roll_secret(id, secret: nil)
+      return @client.request("POST", "/webhooks/#{enc(id)}/roll", body: { "secret" => secret }) unless secret.nil?
+
       @client.request("POST", "/webhooks/#{enc(id)}/roll")
     end
 
@@ -1227,11 +1239,16 @@ module CookieMunch
     # validates everything and returns the would-be connection and a diff, storing nothing.
     # A whsec_<base64> webhook secret verifies deliveries signed with its base64-decoded bytes
     # or with the literal string; any other only with its UTF-8 bytes.
-    def connect_executor(system:, base_url:, secret_key:, profile:, webhook_secret: nil, auto: nil, dry_run: false)
+    # +verify: "1"+ probes it first (a canary locate; no erasure is sent) and refuses a failing
+    # one (422 verify_failed, nothing stored); +verify: "warn"+ stores it with a warning.
+    # +require_approval: true+ parks its erasures until approve_task.
+    def connect_executor(system:, base_url:, secret_key:, profile:, webhook_secret: nil, auto: nil, dry_run: false,
+                         require_approval: nil, verify: nil)
       body = { "system" => system, "baseUrl" => base_url, "secretKey" => secret_key, "profile" => profile }
       body["webhookSecret"] = webhook_secret unless webhook_secret.nil?
       body["auto"] = auto unless auto.nil?
-      @client.request("POST", "/dsar/executors#{dry_run ? '?dryRun=1' : ''}", body: body)
+      body["requireApproval"] = require_approval unless require_approval.nil?
+      @client.request("POST", "/dsar/executors#{connect_qs(dry_run, verify)}", body: body)
     end
 
     # Connect a system from a versioned preset: "atlas" (optional +atlas_id_app_id+),
@@ -1242,14 +1259,23 @@ module CookieMunch
     # partner mint the key for the site under its link; +external_id:+ names the partner account.
     def connect_executor_preset(preset:, secret_key: nil, mint_from: nil, external_id: nil, system: nil, base_url: nil, org_id: nil, atlas_id_app_id: nil,
                                 preset_version: nil, webhook_secret: nil, auto: nil, cbid: nil,
-                                revoke_atlas_id_grant: nil, label: nil, orchestrator: nil, dry_run: false)
+                                revoke_atlas_id_grant: nil, label: nil, orchestrator: nil, dry_run: false,
+                                require_approval: nil, verify: nil)
       body = {
         "preset" => preset, "secretKey" => secret_key, "mintFrom" => mint_from, "externalId" => external_id, "system" => system, "baseUrl" => base_url, "orgId" => org_id,
         "atlasIdAppId" => atlas_id_app_id, "presetVersion" => preset_version, "webhookSecret" => webhook_secret,
-        "auto" => auto, "cbid" => cbid, "revokeAtlasIdGrant" => revoke_atlas_id_grant, "label" => label, "orchestrator" => orchestrator
+        "auto" => auto, "cbid" => cbid, "revokeAtlasIdGrant" => revoke_atlas_id_grant, "label" => label, "orchestrator" => orchestrator,
+        "requireApproval" => require_approval
       }.reject { |_, v| v.nil? }
-      @client.request("POST", "/dsar/executors#{dry_run ? '?dryRun=1' : ''}", body: body)
+      @client.request("POST", "/dsar/executors#{connect_qs(dry_run, verify)}", body: body)
     end
+
+    def connect_qs(dry_run, verify)
+      raise ArgumentError, 'verify must be "1" or "warn"' unless verify.nil? || %w[1 warn].include?(verify)
+
+      qs("dryRun" => dry_run ? "1" : nil, "verify" => verify)
+    end
+    private :connect_qs
 
     # The versioned presets, whether each is usable now or waits on another platform, and
     # the organisation's canary address.
@@ -1333,6 +1359,16 @@ module CookieMunch
     # One task: its status history, its upstream request log, and its system's versions.
     def task(request_id, task_id)
       @client.get("/dsar/#{enc(request_id)}/tasks/#{enc(task_id)}")
+    end
+
+    # Send an erasure that was awaiting approval (a connection with requireApproval). Audited.
+    def approve_task(request_id, task_id)
+      @client.request("POST", "/dsar/#{enc(request_id)}/tasks/#{enc(task_id)}/approve")
+    end
+
+    # Refuse it: nothing is sent, and the task fails with +reason+. Audited.
+    def reject_task(request_id, task_id, reason: nil)
+      @client.request("POST", "/dsar/#{enc(request_id)}/tasks/#{enc(task_id)}/reject", body: reason.nil? ? {} : { "reason" => reason })
     end
 
     # The export bundle a connected system produced, fetched from it on demand.
