@@ -1360,6 +1360,13 @@ module CookieMunch
       @client.request("PATCH", "/dsar/executors/#{enc(id)}#{dry_run ? '?dryRun=1' : ''}", body: body)
     end
 
+    # Create or update the connection for a system from the same +body+ as a create —
+    # PUT /v1/dsar/executors. Re-running it changes nothing; a changed create-only field answers
+    # 409 immutable_field naming every such field. The answer carries upserted: created or updated.
+    def upsert_executor(body)
+      @client.request("PUT", "/dsar/executors", body: body)
+    end
+
     # Would this webhook delivery verify? Runs the receiver's exact check on +headers+ and the
     # raw +body+ string (the bytes that were signed) and acts on nothing: {verified, stage, reason}.
     def test_executor_webhook(id, headers:, body:)

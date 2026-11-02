@@ -244,6 +244,7 @@
     "PUT /v1/audit/sink",
     "PUT /v1/banners/{}",
     "PUT /v1/banners/{}/assignments",
+    "PUT /v1/dsar/executors",
     "PUT /v1/integration-health/waivers",
     "PUT /v1/org/controller",
     "PUT /v1/org/mail-provider",
