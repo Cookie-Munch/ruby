@@ -72,6 +72,7 @@ module CookieMunch
       @members = Members.new(self)
       @keys = Keys.new(self)
       @sandbox = Sandbox.new(self)
+      @anchors = Anchors.new(self)
       @webhooks = Webhooks.new(self)
       @banners = Banners.new(self)
       @identity = Identity.new(self)
@@ -98,7 +99,7 @@ module CookieMunch
     end
 
     # Resource groups mirroring the reference TypeScript SDK surface.
-    attr_reader :sandbox
+    attr_reader :sandbox, :anchors
     attr_reader :sites, :consent, :dsar, :vendors, :ropa, :brand_kits, :rights_page,
                 :preferences, :members, :keys, :webhooks, :banners,
                 :identity, :vault, :profile, :subscriptions, :assessments,

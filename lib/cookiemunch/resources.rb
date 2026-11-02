@@ -751,6 +751,28 @@ module CookieMunch
     end
   end
 
+  # /v1/anchors — audit anchoring: post the head of your own hash-chained log and keep the signed
+  # receipt. +seq+ must strictly increase per stream; the same seq and head again returns the original
+  # receipt, a different head for an anchored seq is a 409 (+anchor_head_mismatch+). +create+ needs
+  # +anchors:write+; +list+ and +get+ need +anchors:read+.
+  class Anchors < Resource
+    # POST /v1/anchors — a receipt signed with the key in /v1/partner/jwks.json.
+    def create(stream:, head:, seq:)
+      @client.request("POST", "/anchors", body: { "stream" => stream, "head" => head, "seq" => seq })
+    end
+
+    # GET /v1/anchors/{stream} — {"stream", "anchors", "nextBefore"}, newest first. Pass
+    # "nextBefore" as +before+ until it is nil.
+    def list(stream, limit: nil, before: nil)
+      @client.get("/anchors/#{enc(stream)}#{qs("limit" => limit, "before" => before)}")
+    end
+
+    # GET /v1/anchors/{stream}/{id} — one receipt.
+    def get(stream, id)
+      @client.get("/anchors/#{enc(stream)}/#{enc(id)}")
+    end
+  end
+
   # /v1/sandbox — the organisation's sandbox: a separate test organisation with the same people and
   # plan features, never billed. Its keys are test keys and its rights requests are all tests.
   # +create+ and +delete+ need a full-access key or +orgs:create+.
