@@ -28,6 +28,7 @@
     "DELETE /v1/sites/{}/rights-captcha",
     "DELETE /v1/sites/{}/rights-identity",
     "DELETE /v1/sites/{}/rights-page/domains/{}",
+    "DELETE /v1/sites/{}/translation",
     "DELETE /v1/webhooks/{}",
     "GET /v1/ai/audit",
     "GET /v1/ai/inventory",
@@ -127,6 +128,7 @@
     "GET /v1/sites/{}/scan",
     "GET /v1/sites/{}/snippet",
     "GET /v1/sites/{}/subject-export",
+    "GET /v1/sites/{}/translation",
     "GET /v1/sites/{}/verify/challenge",
     "GET /v1/subjects/{}/consent",
     "GET /v1/subscriptions/topics",
@@ -209,6 +211,7 @@
     "POST /v1/sites/{}/config/lint",
     "POST /v1/sites/{}/consent-sync-secret",
     "POST /v1/sites/{}/cookies/suggestions/declare",
+    "POST /v1/sites/{}/cookies/translate",
     "POST /v1/sites/{}/cookies/{}/retire",
     "POST /v1/sites/{}/elements/ad-personalization",
     "POST /v1/sites/{}/erase-consent",
@@ -257,6 +260,7 @@
     "PUT /v1/sites/{}/rights-captcha",
     "PUT /v1/sites/{}/rights-identity",
     "PUT /v1/sites/{}/rights-page",
+    "PUT /v1/sites/{}/translation",
     "PUT /v1/subscriptions/topics",
     "PUT /v1/subscriptions/{}"
   ]

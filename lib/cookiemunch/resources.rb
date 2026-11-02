@@ -294,6 +294,32 @@ module CookieMunch
       @client.request("POST", "/sites/#{enc(cbid)}/cookies/suggestions/declare#{qs("dryRun" => dry_run ? "1" : nil)}", body: body)
     end
 
+    # The site's own translation account (DeepL or Google): provider, key last four and
+    # fingerprint, when connected. Never the key.
+    def translation(cbid)
+      @client.request("GET", "/sites/#{enc(cbid)}/translation")
+    end
+
+    # Connect the site's own DeepL or Google Cloud Translation key (provider: "deepl" or "google").
+    # Stored sealed, never returned. verify: true checks it first, sending no text.
+    def connect_translation(cbid, provider, key, verify: false)
+      @client.request("PUT", "/sites/#{enc(cbid)}/translation#{qs("verify" => verify ? "1" : nil)}", body: { "provider" => provider, "key" => key })
+    end
+
+    # Remove the site's translation key. Translations already stored stay.
+    def disconnect_translation(cbid)
+      @client.request("DELETE", "/sites/#{enc(cbid)}/translation")
+    end
+
+    # Machine-translate the missing purposes of the site's own cookie rows on its connected
+    # account. Never overwrites a row's text. dry_run: true calls no provider.
+    def translate_cookies(cbid, languages: nil, names: nil, dry_run: false)
+      body = {}
+      body["languages"] = languages unless languages.nil?
+      body["names"] = names unless names.nil?
+      @client.request("POST", "/sites/#{enc(cbid)}/cookies/translate#{qs("dryRun" => dry_run ? "1" : nil)}", body: body)
+    end
+
     # Remove every declaration a vendor preset made.
     def remove_cookie_preset(cbid, preset, dry_run: false)
       @client.request("DELETE", "/sites/#{enc(cbid)}/cookies/presets/#{enc(preset)}#{qs("dryRun" => dry_run ? "1" : nil)}")
@@ -525,9 +551,10 @@ module CookieMunch
     # the site trusts. +source+ product/atlas attests the person (needs dsar:write); admin files
     # it received. +idempotency_key+ (16–128 chars) makes a retry answer the same case.
     def open_case(cbid, type, emails: nil, identity: nil, subject_token: nil, source: nil, reason: nil,
-                  skip_systems: nil, fulfill: nil, test: nil, idempotency_key: nil, trace: nil)
+                  skip_systems: nil, fulfill: nil, test: nil, idempotency_key: nil, trace: nil, controller: nil)
+      # controller: on a processor site, the business the case concerns (optional when the site lists one).
       body = { "cbid" => cbid, "type" => type, "subjectToken" => subject_token, "source" => source, "reason" => reason,
-               "skipSystems" => skip_systems, "fulfill" => fulfill, "test" => test }.reject { |_, v| v.nil? }
+               "skipSystems" => skip_systems, "fulfill" => fulfill, "test" => test, "controller" => controller }.reject { |_, v| v.nil? }
       unless emails.nil? && identity.nil?
         body["subject"] = { "emails" => Array(emails) }
         body["subject"]["identity"] = identity unless identity.nil?
@@ -1504,6 +1531,13 @@ module CookieMunch
 
     def set(cbid, grace_days:)
       @client.request("PUT", "/sites/#{enc(cbid)}/dsar-settings", body: { "graceDays" => grace_days })
+    end
+
+    # Change only the fields given: "graceDays", "processing" (this site is a processor:
+    # { "role" => "processor", "controllers" => [...] }, nil clears) and "acceptForwardsFrom"
+    # (processors that may open cases here, nil clears). A webhook "secret" is write-only.
+    def update(cbid, settings)
+      @client.request("PUT", "/sites/#{enc(cbid)}/dsar-settings", body: settings)
     end
   end
 
