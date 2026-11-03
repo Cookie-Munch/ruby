@@ -213,7 +213,7 @@ module CookieMunch
     # @return [Hash] { "cookie" => DeclaredCookie, "warnings" }.
     # purposes: the purpose in other languages ({ "es" => "…", "pt-BR" => "…" }); purpose is
     # the fallback. dry_run: true stores nothing and answers with "declared" and a "diff".
-    # type: "localStorage", "sessionStorage" or "indexedDB" declares browser storage instead of a cookie.
+    # type: "localStorage", "sessionStorage" or "indexedDB" declares browser storage instead of a cookie; "none" a cookieless processor.
     def declare_cookie(cbid, name, category, purpose, provider: nil, expiry: nil, domain: nil, pattern: nil,
                        purposes: nil, type: nil, dry_run: false)
       body = { "category" => category, "purpose" => purpose }
@@ -257,7 +257,7 @@ module CookieMunch
       nil
     end
 
-    # Every declaration preset (atlas, forumulate, chatly, cookiemunch, referalli, firstpromoter, partnerstack, tapfiliate, impact): its parameters, what
+    # Every declaration preset (atlas, forumulate, chatly, cookiemunch, referalli, firstpromoter, partnerstack, tapfiliate, impact, seolyticize): its parameters, what
     # it has declared on this site, and whether the vendor's manifest exists yet.
     # @return [Hash] { "presets" => [...] }.
     def cookie_presets(cbid)
