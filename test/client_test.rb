@@ -41,6 +41,18 @@ class ClientTest < Minitest::Test
     assert_equal "c1", sites.first["cbid"]
   end
 
+  def test_list_envelope_unwrapped_from_2026_11_03
+    rows = [{ "cbid" => "c1" }]
+    call = lambda do |body, version|
+      t = FakeTransport.new(headers: { "content-type" => "application/json", "CookieMunch-Version" => version }, body: JSON.generate(body))
+      CookieMunch::Client.new(api_key: "fck_secret", transport: t).sites.list
+    end
+    assert_equal rows, call.call({ "data" => rows, "next" => "1" }, "2026-11-03")
+    assert_equal rows, call.call(rows, "2026-01-01")
+    assert_equal({ "data" => rows }, call.call({ "data" => rows }, "2026-10-24"))
+    assert_equal({ "data" => rows, "total" => 1 }, call.call({ "data" => rows, "total" => 1 }, "2026-11-03"))
+  end
+
   def test_query_string_and_segment_encoding
     t = FakeTransport.new(body: JSON.generate([]))
     cm = CookieMunch::Client.new(api_key: "fck_secret", transport: t)

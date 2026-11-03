@@ -329,7 +329,7 @@ module CookieMunch
 
       content_type = header_value(res_headers, "content-type") || ""
       if content_type.include?("application/json")
-        res_body.empty? ? nil : JSON.parse(res_body)
+        res_body.empty? ? nil : unwrap_list(header_value(res_headers, "cookiemunch-version"), JSON.parse(res_body))
       else
         res_body
       end
@@ -373,6 +373,14 @@ module CookieMunch
 
     def stringify(hash)
       hash.each_with_object({}) { |(k, v), acc| acc[k.to_s] = v }
+    end
+
+    # From API version 2026-11-03 a list answers {"data" => [...]} (plus "next"); hand back the list either way.
+    def unwrap_list(version, body)
+      return body if version.nil? || version < "2026-11-03" || !body.is_a?(Hash)
+      return body["data"] if body["data"].is_a?(Array) && (body.keys - %w[data next]).empty?
+
+      body
     end
 
     def header_value(headers, name)
