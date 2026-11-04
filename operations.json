@@ -209,6 +209,7 @@
     "POST /v1/sites/bulk",
     "POST /v1/sites/{}/brand",
     "POST /v1/sites/{}/config/lint",
+    "POST /v1/sites/{}/config/translate",
     "POST /v1/sites/{}/consent-sync-secret",
     "POST /v1/sites/{}/cookies/plan",
     "POST /v1/sites/{}/cookies/suggestions/declare",

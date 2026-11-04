@@ -327,6 +327,14 @@ module CookieMunch
       @client.request("POST", "/sites/#{enc(cbid)}/cookies/translate#{qs("dryRun" => dry_run ? "1" : nil)}", body: body)
     end
 
+    # Machine-translate the site's own banner and category copy into the i18n.overrides languages
+    # it lacks, on its connected account. Never overwrites a person's text. dry_run: true calls no provider.
+    def translate_config(cbid, languages: nil, dry_run: false)
+      body = {}
+      body["languages"] = languages unless languages.nil?
+      @client.request("POST", "/sites/#{enc(cbid)}/config/translate#{qs("dryRun" => dry_run ? "1" : nil)}", body: body)
+    end
+
     # Remove every declaration a vendor preset made.
     def remove_cookie_preset(cbid, preset, dry_run: false)
       @client.request("DELETE", "/sites/#{enc(cbid)}/cookies/presets/#{enc(preset)}#{qs("dryRun" => dry_run ? "1" : nil)}")
