@@ -141,9 +141,11 @@ module CookieMunch
 
     # Start a cookie crawl: answers at once with "scanId" and "state" => "queued".
     # wait: (seconds, at most 60) holds the request until it is done or failed.
+    # cookies: a test account's Cookie header value (or [{ "name", "value" }]) for a
+    # signed-in crawl; never stored or returned. Once done: "undeclared" and "stale".
     # @return [Hash] ScanStatus.
-    def scan(cbid, wait: nil)
-      @client.request("POST", "/sites/#{enc(cbid)}/scan#{qs("wait" => num(wait))}")
+    def scan(cbid, wait: nil, cookies: nil)
+      @client.request("POST", "/sites/#{enc(cbid)}/scan#{qs("wait" => num(wait))}", body: cookies.nil? ? nil : { "cookies" => cookies })
     end
 
     # The last scan: "state" (idle, queued, scanning, done, failed), "scanId", timings,
@@ -257,7 +259,7 @@ module CookieMunch
       nil
     end
 
-    # Every declaration preset (atlas, forumulate, chatly, cookiemunch, referalli, firstpromoter, partnerstack, tapfiliate, impact, seolyticize): its parameters, what
+    # Every declaration preset (atlas, forumulate, chatly, cookiemunch, referalli, firstpromoter, partnerstack, tapfiliate, impact, seolyticize, lucida, hermetica, watchtower): its parameters, what
     # it has declared on this site, and whether the vendor's manifest exists yet.
     # @return [Hash] { "presets" => [...] }.
     def cookie_presets(cbid)
@@ -266,7 +268,7 @@ module CookieMunch
 
     # Apply (or re-sync) a vendor preset: declares what that platform writes, marked
     # "vendor". Atlas takes { "frontendApiHost", "crossSubdomainCookies", "publishableKey" }; Chatly
-    # { "publicId", "dragging", "storage", "tracking", "category" }; referral presets { "cookieDomain", "cookieDays", "category" } (referalli "legacyName", impact "campaignId"). Names you declared are kept ("skipped").
+    # { "publicId", "dragging", "storage", "tracking", "category" }; referral presets { "cookieDomain", "cookieDays", "category" } (referalli "legacyName", impact "campaignId"); lucida { "publicKey", "cookieDomain", "category" }, hermetica { "storage", "category" } (storage "localStorage" or "cookie"), watchtower "category". Names you declared are kept ("skipped").
     def apply_cookie_preset(cbid, preset, params = {}, dry_run: false)
       @client.request("PUT", "/sites/#{enc(cbid)}/cookies/presets/#{enc(preset)}#{qs("dryRun" => dry_run ? "1" : nil)}", body: params || {})
     end
@@ -1321,15 +1323,16 @@ module CookieMunch
     # API is refused (409 preset_waiting_on_platform); see +executor_presets+.
     # Send +secret_key:+, or +mint_from:+ (a partner id that registered an executorKeyUrl) to have that
     # partner mint the key for the site under its link; +external_id:+ names the partner account.
+    # +params:+ carries any of the preset's params by name ({ "programId" => "prg_1" } for referalli).
     def connect_executor_preset(preset:, secret_key: nil, mint_from: nil, external_id: nil, system: nil, base_url: nil, org_id: nil, atlas_id_app_id: nil,
                                 preset_version: nil, webhook_secret: nil, auto: nil, cbid: nil,
                                 revoke_atlas_id_grant: nil, label: nil, orchestrator: nil, dry_run: false,
-                                require_approval: nil, verify: nil)
+                                require_approval: nil, verify: nil, params: nil)
       body = {
         "preset" => preset, "secretKey" => secret_key, "mintFrom" => mint_from, "externalId" => external_id, "system" => system, "baseUrl" => base_url, "orgId" => org_id,
         "atlasIdAppId" => atlas_id_app_id, "presetVersion" => preset_version, "webhookSecret" => webhook_secret,
         "auto" => auto, "cbid" => cbid, "revokeAtlasIdGrant" => revoke_atlas_id_grant, "label" => label, "orchestrator" => orchestrator,
-        "requireApproval" => require_approval
+        "requireApproval" => require_approval, "params" => params
       }.reject { |_, v| v.nil? }
       @client.request("POST", "/dsar/executors#{connect_qs(dry_run, verify)}", body: body)
     end
@@ -1347,16 +1350,22 @@ module CookieMunch
       @client.get("/dsar/executors/presets")
     end
 
+    # GET /v1/dsar/executors/suggestions — platforms a site's cookie rows and partner links imply
+    # that have no connected system yet; every site the key reaches without cbid.
+    def executor_suggestions(cbid: nil)
+      @client.get("/dsar/executors/suggestions#{qs("cbid" => cbid)}")
+    end
+
     # Rebuild a connection from its preset's latest version (or +preset_version+), keeping its
     # id and credential; +preset:+ adopts one on a hand-written connection. Answers with a
     # diff; your hand edits (profileOverrides) are kept and listed as kept or conflict, and
     # +accept_preset:+ names the paths that take the preset's value again. A pinned connection is
     # refused (409 preset_pinned). +dry_run: true+ (?dryRun=1) changes nothing.
     def upgrade_executor_preset(id, preset: nil, preset_version: nil, org_id: nil, atlas_id_app_id: nil,
-                                revoke_atlas_id_grant: nil, accept_preset: nil, dry_run: false)
+                                revoke_atlas_id_grant: nil, accept_preset: nil, dry_run: false, params: nil)
       body = {
         "preset" => preset, "presetVersion" => preset_version, "orgId" => org_id, "atlasIdAppId" => atlas_id_app_id,
-        "revokeAtlasIdGrant" => revoke_atlas_id_grant, "acceptPreset" => accept_preset
+        "revokeAtlasIdGrant" => revoke_atlas_id_grant, "acceptPreset" => accept_preset, "params" => params
       }.reject { |_, v| v.nil? }
       @client.request("POST", "/dsar/executors/#{enc(id)}/upgrade-preset#{dry_run ? '?dryRun=1' : ''}", body: body)
     end
@@ -1420,6 +1429,11 @@ module CookieMunch
     # Run the cm-standard-v2 conformance kit against a connection, on the canary subject only.
     def executor_conformance(id)
       @client.request("POST", "/dsar/executors/#{enc(id)}/test", body: { "conformance" => true })
+    end
+
+    # The current completion secret and completionUrl, read again (dsar:write, audited).
+    def get_executor_completion_secret(id)
+      @client.request("GET", "/dsar/executors/#{enc(id)}/completion-secret")
     end
 
     # A new completion secret, shown once; the old one keeps verifying for 24 hours.
@@ -1607,6 +1621,11 @@ module CookieMunch
       @client.request("DELETE", "/sites/#{enc(cbid)}/rights-identity")
     end
 
+    # Check one session token as the rights intake would (verified, reason, jwt, detail, claims). Files nothing.
+    def check(cbid, token)
+      @client.request("POST", "/sites/#{enc(cbid)}/rights-identity/check", body: { token: token })
+    end
+
     def self.body(type, issuer, jwks_url, audience, authorized_parties, email_claim, email_verified_claim, session_cookie_name, trust_email_claim = nil)
       { "type" => type, "issuer" => issuer, "jwksUrl" => jwks_url, "audience" => audience,
         "authorizedParties" => authorized_parties, "emailClaim" => email_claim,
@@ -1669,7 +1688,7 @@ module CookieMunch
       @client.get("/org/mail-provider")
     end
 
-    # Connect your own mail provider (recommended): brevo, sendgrid, postmark, resend,
+    # Connect your own mail provider (recommended): brevo, sendgrid, postmark, resend, hermetica,
     # ses (+ses: { "region" =>, "accessKeyId" => }+) or smtp
     # (+smtp: { "host" =>, "port" =>, "security" =>, "username" => }+). Replaces the stored
     # one; it carries rights mail only after +test_mail_provider+ succeeds. +secret+ is

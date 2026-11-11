@@ -202,8 +202,9 @@ module CookieMunch
     # GET /v1/audit — the org's audit log, newest first. API actions appear as
     # "apikey:<prefix>". Requires an unscoped key that is not property-locked.
     # @return [Hash] { "entries" => [...] }.
-    def audit(limit: nil, actor: nil)
-      params = { "limit" => limit, "actor" => actor }.compact
+    # since: ISO 8601 or epoch ms; only rows at or after it. audit:read also reads it.
+    def audit(limit: nil, actor: nil, since: nil)
+      params = { "limit" => limit, "actor" => actor, "since" => since }.compact
       query = params.empty? ? "" : "?#{URI.encode_www_form(params)}"
       get("/audit#{query}")
     end

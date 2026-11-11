@@ -155,6 +155,12 @@ class PlatformTest < Minitest::Test
     assert_nil client(FakeTransport.new(status: 204, body: "")).sites.unretire_cookie("cb", "old")
   end
 
+  def test_scan_signed_in_cookies
+    t = FakeTransport.new
+    client(t).sites.scan("cb", cookies: "sid=abc")
+    assert_equal({ "cookies" => "sid=abc" }, body_of(t.calls[0]))
+  end
+
   def test_scan_wait_and_wait_for_scan
     t = FakeTransport.new
     c = client(t)
