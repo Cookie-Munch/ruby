@@ -215,7 +215,7 @@ module CookieMunch
     # @return [Hash] { "cookie" => DeclaredCookie, "warnings" }.
     # purposes: the purpose in other languages ({ "es" => "…", "pt-BR" => "…" }); purpose is
     # the fallback. dry_run: true stores nothing and answers with "declared" and a "diff".
-    # type: "localStorage", "sessionStorage" or "indexedDB" declares browser storage instead of a cookie; "none" a cookieless processor.
+    # type: "localStorage", "sessionStorage", "indexedDB" or "cacheStorage" declares browser storage instead of a cookie; "none" a cookieless processor.
     def declare_cookie(cbid, name, category, purpose, provider: nil, expiry: nil, domain: nil, pattern: nil,
                        purposes: nil, type: nil, dry_run: false)
       body = { "category" => category, "purpose" => purpose }
@@ -301,6 +301,12 @@ module CookieMunch
     # Answers { dryRun, steps, declared, count, diff }.
     def plan_cookies(cbid, input = {})
       @client.request("POST", "/sites/#{enc(cbid)}/cookies/plan", body: input)
+    end
+
+    # Apply what +plan_cookies+ shows, all or nothing (same body, incl. +handOver+): stored only when
+    # every step passes; a refusal stores nothing. Answers { applied, steps, declared, count, diff }.
+    def apply_cookies(cbid, input = {})
+      @client.request("POST", "/sites/#{enc(cbid)}/cookies/apply", body: input)
     end
 
     # The site's own translation account (DeepL or Google): provider, key last four and
