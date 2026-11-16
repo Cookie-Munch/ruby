@@ -95,6 +95,13 @@ module CookieMunch
       @client.request("DELETE", "/sites/#{enc(cbid)}/partners/#{enc(link_id)}")
     end
 
+    # PATCH /v1/sites/{cbid}/partners/{link_id} — fix externalId or label in place, keeping the grant.
+    # "warnings" names executor keys minted for the old account, to re-mint.
+    def update_partner(cbid, link_id, external_id: nil, label: nil, dry_run: false)
+      body = { "externalId" => external_id, "label" => label }.reject { |_, v| v.nil? }
+      @client.request("PATCH", "/sites/#{enc(cbid)}/partners/#{enc(link_id)}#{qs("dryRun" => dry_run ? "1" : nil)}", body: body)
+    end
+
     def get_config(cbid)
       @client.get("/sites/#{enc(cbid)}/config")
     end
@@ -966,6 +973,12 @@ module CookieMunch
 
     def revoke(id)
       @client.request("DELETE", "/partner_links/#{enc(id)}")
+    end
+
+    # PATCH /v1/partner_links/{id} — fix externalId or label in place, keeping the grant.
+    def update(id, external_id: nil, label: nil, dry_run: false)
+      body = { "externalId" => external_id, "label" => label }.reject { |_, v| v.nil? }
+      @client.request("PATCH", "/partner_links/#{enc(id)}#{qs("dryRun" => dry_run ? "1" : nil)}", body: body)
     end
   end
 
