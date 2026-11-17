@@ -1470,6 +1470,11 @@ module CookieMunch
       @client.request("POST", "/dsar/#{enc(request_id)}/tasks/#{enc(task_id)}/approve")
     end
 
+    # Send a failed task again once its system is fixed: a new request upstream. Audited.
+    def retry_task(request_id, task_id)
+      @client.request("POST", "/dsar/#{enc(request_id)}/tasks/#{enc(task_id)}/retry")
+    end
+
     # Refuse it: nothing is sent, and the task fails with +reason+. Audited.
     def reject_task(request_id, task_id, reason: nil)
       @client.request("POST", "/dsar/#{enc(request_id)}/tasks/#{enc(task_id)}/reject", body: reason.nil? ? {} : { "reason" => reason })
