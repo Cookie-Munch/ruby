@@ -877,27 +877,27 @@ module CookieMunch
       @client.request("DELETE", "/keys/#{enc(prefix)}")
     end
 
-    # Account key (+orgs:keys+): another org's key prefixes. Same answer as +list+.
+    # Full-access or account key (+orgs:keys+): another org's key prefixes. Same answer as +list+.
     def list_in_org(org_id)
       @client.get("/orgs/#{enc(org_id)}/keys")
     end
 
-    # Account key (+orgs:keys+): mint a scoped key in another org of the same account.
-    # +scopes+ is required; the "key" is returned ONCE.
-    def create_in_org(org_id, scopes:, name: nil, cbids: nil, expires_in_days: nil, expires_at: nil, owner: nil, strict_unknown_fields: nil)
+    # Full-access or account key (+orgs:keys+): mint a key in another org of the same account.
+    # +scopes+ is required with an account key; the "key" is returned ONCE.
+    def create_in_org(org_id, scopes: nil, name: nil, cbids: nil, expires_in_days: nil, expires_at: nil, owner: nil, strict_unknown_fields: nil)
       body = { "name" => name, "scopes" => scopes, "cbids" => cbids, "expiresInDays" => expires_in_days, "expiresAt" => expires_at,
                "owner" => owner, "strictUnknownFields" => strict_unknown_fields }
       @client.request("POST", "/orgs/#{enc(org_id)}/keys", body: body.reject { |_, v| v.nil? })
     end
 
-    # Account key (+orgs:keys+): update a key in another org. Same fields as +update+.
+    # Full-access or account key (+orgs:keys+): update a key in another org. Same fields as +update+.
     def update_in_org(org_id, prefix, name: nil, scopes: nil, cbids: nil, expires_at: UNSET_EXPIRY, owner: nil, strict_unknown_fields: nil)
       body = { "name" => name, "scopes" => scopes, "cbids" => cbids, "owner" => owner, "strictUnknownFields" => strict_unknown_fields }.reject { |_, v| v.nil? }
       body["expiresAt"] = expires_at unless expires_at.equal?(UNSET_EXPIRY)
       @client.request("PATCH", "/orgs/#{enc(org_id)}/keys/#{enc(prefix)}", body: body)
     end
 
-    # Account key (+orgs:keys+): revoke a key in another org. Immediate.
+    # Full-access or account key (+orgs:keys+): revoke a key in another org. Immediate.
     def revoke_in_org(org_id, prefix)
       @client.request("DELETE", "/orgs/#{enc(org_id)}/keys/#{enc(prefix)}")
     end
